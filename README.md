@@ -59,7 +59,7 @@ Puis redémarrez PC-CLT01, ouvrez une session GROUPE4\j.martin et testez Edge : 
 
 ## Étape 5 – FW01 (OPNsense), depuis SRV-AD01, en dernier
 
-1. Dans Edge sur SRV-AD01, interface web d'OPNsense (https://192.168.10.254) : System ▸ Access ▸ Users ▸ root ▸ section API keys ▸ **+**. Un fichier `…_apikey.txt` (lignes `key=` et `secret=`) se télécharge dans Téléchargements ; ne le publiez jamais.
+1. Dans Edge sur SRV-AD01, interface web d'OPNsense (https://192.168.10.254) : System ▸ Access ▸ Users, onglet **Users** (pas ApiKeys), ligne root, colonne Commands : icône ticket « Create and download API key for this user » ▸ **Yes**. Le fichier `fw01.groupe4.internal_root_apikey.txt` (lignes `key=` et `secret=`) se télécharge dans Téléchargements ; ne le publiez jamais.
 2. PowerShell sur SRV-AD01 :
 
 ```powershell
@@ -86,6 +86,30 @@ SRV-WAZUH01, depuis PowerShell sur SRV-AD01 (liste des agents et derniers évén
 ssh -t adminwazuh@192.168.10.30 'curl -fsSL https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/go.sh -o /tmp/go.sh && sudo bash /tmp/go.sh'
 ```
 
+## Recette : tester toutes les machines (lecture seule)
+
+Les scripts `test*.ps1` vérifient tout le projet sans modifier aucune configuration. Chaque test affiche [OK] ou [ECHEC] avec une piste de correction, et un rapport `recette-*.txt` est enregistré sur le Bureau.
+
+**SRV-AD01**, PowerShell en administrateur : tests de l'AD, de FW01, puis de SRV-PROXY01 et SRV-WAZUH01 par SSH (mots de passe SSH puis sudo pour chaque serveur Linux).
+
+```powershell
+iwr https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/test.ps1 -UseBasicParsing | iex
+```
+
+Pour tester aussi la configuration de FW01 par son API (lecture seule), créez avant une clé API (étape 5) : le test la lit dans Téléchargements. Supprimez-la ensuite.
+
+**PC-CLT01**, session GROUPE4\j.martin (le web direct étant bloqué, le téléchargement passe par le proxy) :
+
+```powershell
+(New-Object Net.WebClient -Property @{Proxy=(New-Object Net.WebProxy('http://srv-proxy01.groupe4.internal:3128') -Property @{UseDefaultCredentials=$true})}).DownloadString('https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/test.ps1') | iex
+```
+
+Puis session GROUPE4\p.durand (refusé par le proxy, il réutilise la copie de j.martin) ; le test attend cette fois un refus 403 :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\Users\Public\recette-g4\test-pc-clt01.ps1
+```
+
 ## Optionnel – SSH sans mot de passe depuis SRV-AD01
 
 À faire une fois dans PowerShell sur SRV-AD01 (Entrée trois fois pour ssh-keygen). Ensuite, seul le mot de passe sudo est demandé.
@@ -108,6 +132,11 @@ type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh adminproxy@192.168.10.20 "mkdir 
 | `srv-wazuh01.sh` | SRV-WAZUH01 | Heure sur l'AD, règle Wazuh 100200 (accès Squid visibles), vérification des services, des agents et des événements Squid |
 | `srv-proxy01.sh` | SRV-PROXY01 | Heure et DNS, paquets, agent Wazuh + journal Squid, CA et SSL-Bump, Kerberos, lecture de GG-Internet, configuration finale de Squid |
 | `pc-clt01.ps1` | PC-CLT01 | Agent Wazuh, GPO, vérification du certificat, du proxy, de Kerberos et du blocage du web direct |
+| `test.ps1` | SRV-AD01, PC-CLT01 | Recette : reconnaît la machine et lance les tests (lecture seule) |
+| `test-srv-ad01.ps1` | SRV-AD01 | Tests de l'AD : réseau, comptes, groupe, SPN, DNS, heure, GPO, agent Wazuh, ports |
+| `test-fw01.ps1` | SRV-AD01 | Tests de FW01 : ping, web, DNS, NAT ; règle, alias, agent Wazuh et Dnsmasq si une clé API est présente |
+| `test-linux.ps1` | SRV-AD01 | Tests de SRV-PROXY01 et SRV-WAZUH01 par SSH : Squid, HTTPS, Kerberos, annuaire, journaux, Wazuh, agents, alertes |
+| `test-pc-clt01.ps1` | PC-CLT01 | Tests du poste : domaine, heure, GPO, certificat, blocage du web direct, HTTPS inspecté, Kerberos, autorisation selon GG-Internet |
 
 ## À savoir
 

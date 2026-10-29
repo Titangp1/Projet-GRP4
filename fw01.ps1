@@ -86,7 +86,8 @@ if (-not $installe) {
     catch { Alerte "Plugin toujours absent : installez-le a la main (System > Firmware > Plugins > os-wazuh-agent) puis relancez"; return }
 } else { OK "Plugin deja installe" }
 
-$res = Api POST "wazuhagent/settings/set" @{ agent = @{ general = @{ enabled = "1"; server_address = $WazuhIP; agent_name = "FW01" } } }
+# syslog_programs vide dans le meme envoi : juste apres l'installation, sa valeur par defaut est refusee
+$res = Api POST "wazuhagent/settings/set" @{ agent = @{ general = @{ enabled = "1"; server_address = $WazuhIP; agent_name = "FW01" }; logcollector = @{ syslog_programs = "" } } }
 if ($res.result -eq "saved") { OK "Agent relie a $WazuhIP sous le nom FW01" }
 else { Alerte "Reglages de l'agent refuses : $($res | ConvertTo-Json -Depth 6 -Compress)" }
 
@@ -96,7 +97,7 @@ try {
     else { Info "filterlog non propose : dans Services > Wazuh Agent, cochez les journaux du pare-feu si la liste les contient" }
 } catch { Info "filterlog non propose : a cocher a la main si la liste le contient" }
 
-Api POST "wazuhagent/service/reconfigure" | Out-Null
+try { Api POST "wazuhagent/service/reconfigure" | Out-Null } catch { Alerte "Demarrage de l'agent refuse : reglez-le dans Services > Wazuh Agent > Settings" }
 Start-Sleep -Seconds 5
 try { $etat = (Api GET "wazuhagent/service/status").status } catch { $etat = "inconnu" }
 if ($etat -eq "running") { OK "Service Wazuh de FW01 : running" } else { Alerte "Service Wazuh de FW01 : $etat" }
