@@ -1,6 +1,6 @@
 #!/bin/bash
 # Projet 2 - Groupe B1-4 - SRV-PROXY01 : interface graphique de Squid (Webmin + rapports Calamaris)
-# Installe Webmin (depot officiel), Calamaris (rapports web des acces Squid), squidclient et squid-cgi
+# Installe Webmin (paquet officiel publie sur GitHub), Calamaris (rapports web des acces Squid), squidclient et squid-cgi
 # (statistiques du cache), puis limite l'acces a Webmin a SRV-AD01 (poste d'administration).
 # Relancable sans risque. Lancement, depuis PowerShell sur SRV-AD01 :
 #   ssh -t adminproxy@192.168.10.20 'curl -fsSL https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/webmin.sh -o /tmp/webmin.sh && sudo bash /tmp/webmin.sh'
@@ -14,19 +14,24 @@ info()  { echo -e "\e[33m[..]\e[0m $*"; }
 
 ADMIN=192.168.10.10     # seul poste autorise a ouvrir Webmin (SRV-AD01)
 
-etape "1. Depot officiel Webmin"
-if [ ! -f /etc/apt/sources.list.d/webmin.list ] && ! ls /etc/apt/sources.list.d/ 2>/dev/null | grep -qi webmin; then
-  curl -fsSL -o /tmp/webmin-setup-repo.sh https://raw.githubusercontent.com/webmin/webmin/master/webmin-setup-repo.sh
-  sh /tmp/webmin-setup-repo.sh --force
+etape "1. Paquet Webmin (publication officielle sur GitHub)"
+# download.webmin.com presente un certificat refuse depuis le reseau de l'ecole :
+# on installe le paquet .deb publie par le projet Webmin sur GitHub (github.com est joignable).
+rm -f /etc/apt/sources.list.d/webmin*.list /etc/apt/sources.list.d/webmin*.sources
+if ! dpkg -s webmin >/dev/null 2>&1; then
+  TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/webmin/webmin/releases/latest | sed 's#.*/tag/##')
+  [ -n "$TAG" ] && [ "${TAG#http}" = "$TAG" ] || TAG=2.670
+  info "Version $TAG"
+  curl -fsSL -o /tmp/webmin.deb "https://github.com/webmin/webmin/releases/download/$TAG/webmin_${TAG}_all.deb"
+  apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /tmp/webmin.deb
 fi
-ok "Depot Webmin configure"
+ok "Webmin $(cat /etc/webmin/version 2>/dev/null) installe"
 
-etape "2. Paquets"
-apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --install-recommends webmin
+etape "2. Calamaris et outils du cache"
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq calamaris squidclient || true
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq squid-cgi || info "squid-cgi absent : statistiques du cache non disponibles (sans gravite)"
-ok "Webmin $(cat /etc/webmin/version 2>/dev/null) et Calamaris installes"
+ok "Calamaris installe"
 
 etape "3. Acces a Webmin limite a SRV-AD01 ($ADMIN) et a la machine elle-meme"
 CONF=/etc/webmin/miniserv.conf
