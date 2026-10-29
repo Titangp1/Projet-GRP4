@@ -32,6 +32,11 @@ etape "2. Calamaris et outils du cache"
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq calamaris squidclient || true
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq squid-cgi || info "squid-cgi absent : statistiques du cache non disponibles (sans gravite)"
 ok "Calamaris installe"
+# squid-cgi installe Apache par dependance : inutile ici (Webmin lance cachemgr.cgi lui-meme), on l'arrete
+if systemctl list-unit-files apache2.service >/dev/null 2>&1; then
+  systemctl disable --now apache2 >/dev/null 2>&1 || true
+  ok "Apache (installe avec squid-cgi) arrete et desactive : port 80 du proxy ferme"
+fi
 
 etape "3. Acces a Webmin limite a SRV-AD01 ($ADMIN) et a la machine elle-meme"
 CONF=/etc/webmin/miniserv.conf
@@ -56,6 +61,7 @@ fi
 
 etape "5. Verification"
 systemctl is-active --quiet webmin && ok "Service webmin actif" || echo "[!!] webmin inactif : journalctl -u webmin"
+for i in $(seq 1 15); do ss -ltn | grep -q ':10000 ' && break; sleep 2; done
 ss -ltn | grep -q ':10000 ' && ok "Webmin ecoute sur le port 10000" || echo "[!!] port 10000 ferme"
 command -v calamaris >/dev/null && ok "Calamaris present (icone 'Calamaris Log Analysis' du module Squid)"
 squid -k parse >/dev/null 2>&1 && ok "Configuration Squid toujours valide (rien n'a ete modifie)"
