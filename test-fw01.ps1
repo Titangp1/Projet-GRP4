@@ -60,12 +60,19 @@ public class ToutAccepterG4T : ICertificatePolicy {
         $js.DeserializeObject($brut)
     }
 
-    $regles = (Lire "firewall/filter/searchRule").rows
-    $r = $regles | Where-Object { $_.description -eq "Web direct interdit, passer par le proxy" } | Select-Object -First 1
-    Test-Point "Regle 'Web direct interdit' presente" { [bool]$r }
-    if ($r) {
-        Test-Point "Regle active, action block, journalisee" { $r.enabled -eq "1" -and $r.action -match "block" -and $r.log -eq "1" }
-        Test-Point "Source Postes_clients, ports Ports_web" { $r.source_net -match "Postes_clients" -and $r.destination_port -match "Ports_web" }
+    # Selon la version, searchRule pagine ou filtre par interface : on essaie plusieurs recherches
+    $regle = $null
+    foreach ($q in @("firewall/filter/searchRule?interface=lan&rowCount=-1&searchPhrase=Web%20direct",
+                     "firewall/filter/searchRule?rowCount=-1&searchPhrase=Web%20direct",
+                     "firewall/filter/searchRule?rowCount=-1",
+                     "firewall/filter/searchRule")) {
+        try { $regle = (Lire $q).rows | Where-Object { $_.description -eq "Web direct interdit, passer par le proxy" } | Select-Object -First 1 } catch { }
+        if ($regle) { break }
+    }
+    Test-Point "Regle 'Web direct interdit' presente" { [bool]$regle } "Firewall > Rules : verifier la regle (le blocage reel se teste sur PC-CLT01)"
+    if ($regle) {
+        Test-Point "Regle active, action block, journalisee" { $regle.enabled -eq "1" -and $regle.action -match "block" -and $regle.log -eq "1" }
+        Test-Point "Source Postes_clients, ports Ports_web" { $regle.source_net -match "Postes_clients" -and $regle.destination_port -match "Ports_web" }
     }
     Test-Point "Alias Postes_clients" { [bool](Lire "firewall/alias/getAliasUUID/Postes_clients").uuid }
     Test-Point "Alias Ports_web" { [bool](Lire "firewall/alias/getAliasUUID/Ports_web").uuid }
