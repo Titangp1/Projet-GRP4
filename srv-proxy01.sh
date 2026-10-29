@@ -128,7 +128,7 @@ chmod 640 /etc/squid/ldap.pass
 R1=$(echo "j.martin GG-Internet" | sudo -u proxy /usr/lib/squid/ext_ldap_group_acl "${LDAP_ARGS[@]}" || true)
 R2=$(echo "p.durand GG-Internet" | sudo -u proxy /usr/lib/squid/ext_ldap_group_acl "${LDAP_ARGS[@]}" || true)
 echo "j.martin -> $R1 (attendu OK) ; p.durand -> $R2 (attendu ERR)"
-[ "$R1" = "OK" ] || alerte "j.martin refuse : verifiez le mot de passe dans /etc/squid/ldap.pass (supprimez le fichier et relancez)"
+[[ "$R1" == OK* ]] && ok "Lecture de GG-Internet fonctionnelle" || alerte "j.martin refuse : verifiez le mot de passe dans /etc/squid/ldap.pass (supprimez le fichier et relancez)"
 
 # ---------------------------------------------------------------- 7
 etape "7. Configuration finale de Squid"

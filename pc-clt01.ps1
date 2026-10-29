@@ -49,4 +49,12 @@ try {
 }
 klist | Select-String "HTTP/"
 
+Etape "6. Proxy obligatoire (regle de FW01)"
+$direct = Test-NetConnection www.debian.org -Port 443 -WarningAction SilentlyContinue
+if (-not $direct.RemoteAddress) { Alerte "www.debian.org introuvable dans le DNS : test impossible" }
+elseif ($direct.TcpTestSucceeded) { Alerte "Acces direct au web encore possible : la regle de FW01 n'est pas en place (fw01.ps1)" }
+else { OK "Acces direct au web bloque : tout passe par le proxy" }
+$proxy = Test-NetConnection $ProxyFQDN -Port 3128 -WarningAction SilentlyContinue
+if ($proxy.TcpTestSucceeded) { OK "Proxy joignable sur le port 3128" } else { Alerte "Proxy injoignable sur le port 3128" }
+
 Write-Host "`nTermine. Redemarrez PC-CLT01, ouvrez une session GROUPE4\j.martin et testez Edge (edge://policy, https://www.debian.org)." -ForegroundColor Cyan

@@ -36,5 +36,30 @@ etape "3. Services"
 for s in wazuh-indexer wazuh-manager wazuh-dashboard filebeat; do
   echo "$s : $(systemctl is-active $s)"
 done
-echo -e "\nAgents enregistres :"
+echo -e "\nAgents enregistres (attendus : SRV-AD01, PC-CLT01, SRV-PROXY01, FW01) :"
 /var/ossec/bin/agent_control -l || true
+
+etape "4. Evenements Squid recus par Wazuh"
+python3 - <<'EOF'
+import json
+alertes = []
+try:
+    with open('/var/ossec/logs/alerts/alerts.json', encoding='utf-8', errors='ignore') as f:
+        for ligne in f:
+            try:
+                a = json.loads(ligne)
+            except ValueError:
+                continue
+            if 'squid' in a.get('rule', {}).get('groups', []):
+                alertes.append(a)
+except FileNotFoundError:
+    pass
+refus = [a for a in alertes if '/403 ' in a.get('full_log', '') or '/407 ' in a.get('full_log', '')]
+print(f"Alertes Squid : {len(alertes)} dont {len(refus)} refus (403/407)")
+for a in alertes[-8:]:
+    r = a.get('rule', {})
+    print(a.get('timestamp', '')[:19], a.get('agent', {}).get('name', ''), r.get('id', ''),
+          r.get('description', '')[:38], '|', a.get('full_log', '')[:100])
+if not alertes:
+    print("Aucune : naviguez depuis PC-CLT01 (session j.martin), attendez une minute et relancez.")
+EOF

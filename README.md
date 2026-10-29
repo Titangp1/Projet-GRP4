@@ -57,9 +57,34 @@ iwr https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/go.ps1 -UseBasic
 
 Puis redémarrez PC-CLT01, ouvrez une session GROUPE4\j.martin et testez Edge : `edge://policy`, puis https://www.debian.org (certificat délivré par Groupe4 Proxy CA).
 
-## Étape 5 – FW01 (à la main)
+## Étape 5 – FW01 (OPNsense), depuis SRV-AD01, en dernier
 
-Dans l'interface web d'OPNsense : agent Wazuh (étape 8 du guide), puis règle de blocage du web direct (étape 12). À faire en dernier : après le blocage, PC-CLT01 ne peut plus télécharger depuis Internet.
+1. Dans Edge sur SRV-AD01, interface web d'OPNsense (https://192.168.10.254) : System ▸ Access ▸ Users ▸ root ▸ section API keys ▸ **+**. Un fichier `…_apikey.txt` (lignes `key=` et `secret=`) se télécharge dans Téléchargements ; ne le publiez jamais.
+2. PowerShell sur SRV-AD01 :
+
+```powershell
+iwr https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/fw01.ps1 -UseBasicParsing | iex
+```
+
+Le script lit tout seul le fichier de clé (sinon il demande la clé puis le secret), installe et règle l'agent Wazuh de FW01 (manager 192.168.10.30), désactive Dnsmasq, crée les alias `Postes_clients` et `Ports_web` et la règle qui bloque le web direct de PC-CLT01.
+
+3. À la main, 1 minute : System ▸ Settings ▸ General : Hostname `fw01`, Domain `groupe4.internal`, Timezone `Europe/Paris`, Save.
+
+À faire en dernier : après le blocage, PC-CLT01 ne peut plus télécharger depuis Internet sans passer par le proxy.
+
+## Étape 6 – Vérifications finales
+
+PC-CLT01, PowerShell en administrateur (la section 6 doit afficher « Accès direct au web bloqué ») :
+
+```powershell
+iwr https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/go.ps1 -UseBasicParsing | iex
+```
+
+SRV-WAZUH01, depuis PowerShell sur SRV-AD01 (liste des agents et derniers événements Squid reçus) :
+
+```powershell
+ssh -t adminwazuh@192.168.10.30 'curl -fsSL https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/go.sh -o /tmp/go.sh && sudo bash /tmp/go.sh'
+```
 
 ## Optionnel – SSH sans mot de passe depuis SRV-AD01
 
@@ -77,11 +102,12 @@ type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh adminproxy@192.168.10.20 "mkdir 
 | --- | --- | --- |
 | `go.ps1` | SRV-AD01, PC-CLT01 | Reconnaît la machine Windows et lance son script |
 | `go.sh` | SRV-WAZUH01, SRV-PROXY01 | Reconnaît la machine Linux et lance son script |
+| `fw01.ps1` | SRV-AD01 | Configure FW01 par l'API d'OPNsense : agent Wazuh, arrêt de Dnsmasq, alias, règle de blocage du web direct |
 | `linux.ps1` | SRV-AD01 | Lance go.sh par SSH sur les deux machines Linux, l'une après l'autre |
 | `srv-ad01.ps1` | SRV-AD01 | Heure (NTP), DNS, comptes et GG-Internet, svc-squid, OU Postes-G4, GPO proxy Edge, GPO certificat, agent Wazuh |
-| `srv-wazuh01.sh` | SRV-WAZUH01 | Heure sur l'AD, règle Wazuh 100200 (accès Squid visibles), vérification des services |
+| `srv-wazuh01.sh` | SRV-WAZUH01 | Heure sur l'AD, règle Wazuh 100200 (accès Squid visibles), vérification des services, des agents et des événements Squid |
 | `srv-proxy01.sh` | SRV-PROXY01 | Heure et DNS, paquets, agent Wazuh + journal Squid, CA et SSL-Bump, Kerberos, lecture de GG-Internet, configuration finale de Squid |
-| `pc-clt01.ps1` | PC-CLT01 | Agent Wazuh, GPO, vérification du certificat, du proxy et de Kerberos |
+| `pc-clt01.ps1` | PC-CLT01 | Agent Wazuh, GPO, vérification du certificat, du proxy, de Kerberos et du blocage du web direct |
 
 ## À savoir
 
