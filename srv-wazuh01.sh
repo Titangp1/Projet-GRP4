@@ -19,7 +19,9 @@ ok "NTP = 192.168.10.10"
 
 etape "2. Regle locale Squid (id 100200)"
 REGLES=/var/ossec/etc/rules/local_rules.xml
+CHANGE=0
 if ! grep -q 'id="100200"' "$REGLES"; then
+  CHANGE=1
   cat >> "$REGLES" <<'EOF'
 
 <group name="squid,proxy,">
@@ -34,6 +36,7 @@ ok "Regle 100200 presente"
 
 etape "2b. Regles locales IDS Suricata de FW01 (id 100210 scans, 100211 reponses d'attaque)"
 if ! grep -q 'id="100210"' "$REGLES"; then
+  CHANGE=1
   cp "$REGLES" "$REGLES.avant-ids"
   cat >> "$REGLES" <<'EOF2'
 
@@ -61,8 +64,13 @@ else
   echo "[!!] Regles refusees par wazuh-analysisd : retour a la version precedente"
   [ -f "$REGLES.avant-ids" ] && cp "$REGLES.avant-ids" "$REGLES"
 fi
-systemctl restart wazuh-manager
-ok "Wazuh manager redemarre avec les regles locales"
+# Redemarrage seulement si une regle a ete ajoutee : sinon les agents se deconnectent 1 a 2 minutes pour rien
+if [ "$CHANGE" = 1 ]; then
+  systemctl restart wazuh-manager
+  ok "Wazuh manager redemarre avec les regles locales (agents reconnectes sous 2 minutes)"
+else
+  ok "Regles deja en place : pas de redemarrage de Wazuh"
+fi
 
 etape "3. Services"
 for s in wazuh-indexer wazuh-manager wazuh-dashboard filebeat; do
