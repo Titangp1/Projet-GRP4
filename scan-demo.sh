@@ -30,8 +30,10 @@ nmap -O $FW
 etape "6. Scan de scanme.nmap.org (cible autorisee) : User-Agent Nmap en clair sur le port 80"
 nmap -sV -sC -p 80 scanme.nmap.org
 
-etape "7. Test de controle (alerte garantie) : reponse 'uid=0(root)'"
-curl -s -m 15 http://testmynids.org/uid/index.html; echo
+etape "7. Test de controle : la chaine 'uid=0(root)' traverse FW01 (signature GPL ATTACK_RESPONSE)"
+# testmynids.org n'existe plus : on envoie nous-memes la chaine a FW01 (la reponse importe peu)
+curl -s -m 10 -o /dev/null "http://$FW/uid=0(root)" || true
+echo "Requete envoyee vers $FW avec 'uid=0(root)'"
 
 etape "Ou regarder"
 echo " - OPNsense : Services > Intrusion Detection > Administration > onglet Alerts (source $(hostname -I | awk '{print $1}'))"
