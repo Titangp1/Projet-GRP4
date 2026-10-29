@@ -86,6 +86,40 @@ SRV-WAZUH01, depuis PowerShell sur SRV-AD01 (liste des agents et derniers évén
 ssh -t adminwazuh@192.168.10.30 'curl -fsSL https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/go.sh -o /tmp/go.sh && sudo bash /tmp/go.sh'
 ```
 
+## Étape 7 – IDS/IPS Suricata sur FW01, alertes dans Wazuh
+
+1. À la main dans OPNsense (une fois) : Interfaces ▸ Settings, cocher **Hardware CRC**, **Hardware TSO** et **Hardware LRO** (cochées = désactivées), VLAN Hardware Filtering sur **Disable**, Save, puis redémarrer FW01.
+2. Clé API root dans Téléchargements de SRV-AD01 (comme à l'étape 5), puis PowerShell sur SRV-AD01 :
+
+```powershell
+iwr https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/fw01-ids.ps1 -UseBasicParsing | iex
+```
+
+3. OPNsense ▸ Services ▸ Wazuh Agent ▸ Settings : vérifier que **Intrusion detection events** est coché, Save.
+4. Règles Wazuh 100210 (scan, niveau 10) et 100211 (réponse d'attaque, niveau 12) : relancer le script de SRV-WAZUH01 :
+
+```powershell
+ssh -t adminwazuh@192.168.10.30 'curl -fsSL https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/go.sh -o /tmp/go.sh && sudo bash /tmp/go.sh'
+```
+
+5. Démonstration nmap depuis SRV-PROXY01 (installe nmap, scanne FW01 et scanme.nmap.org, fait un test de contrôle) :
+
+```powershell
+ssh -t adminproxy@192.168.10.20 'curl -fsSL https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/scan-demo.sh -o /tmp/scan-demo.sh && sudo bash /tmp/scan-demo.sh'
+```
+
+6. Résultat : OPNsense ▸ Services ▸ Intrusion Detection ▸ Administration ▸ onglet **Alerts**, et Wazuh ▸ Threat Hunting avec le filtre `rule.groups: suricata`. Le mode IPS (blocage) se règle à la main : guide, étape 14.
+
+## Étape 8 – Squid en interface graphique (Webmin + Calamaris)
+
+PowerShell sur SRV-AD01 (mots de passe : adminproxy, puis sudo) :
+
+```powershell
+ssh -t adminproxy@192.168.10.20 'curl -fsSL https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/webmin.sh -o /tmp/webmin.sh && sudo bash /tmp/webmin.sh'
+```
+
+Puis Edge sur SRV-AD01 : https://192.168.10.20:10000 (certificat auto-signé : Avancé ▸ Continuer). Servers ▸ **Squid Proxy Server**. Webmin n'est accessible que depuis SRV-AD01. Les règles du projet restent dans `/etc/squid/conf.d/groupe4.conf` (icône Edit Config Files) : ne pas les recréer dans les écrans Access Control.
+
 ## Recette : tester toutes les machines (lecture seule)
 
 Les scripts `test*.ps1` vérifient tout le projet sans modifier aucune configuration. Chaque test affiche [OK] ou [ECHEC] avec une piste de correction, et un rapport `recette-*.txt` est enregistré sur le Bureau.
@@ -129,13 +163,16 @@ type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh adminproxy@192.168.10.20 "mkdir 
 | `fw01.ps1` | SRV-AD01 | Configure FW01 par l'API d'OPNsense : agent Wazuh, arrêt de Dnsmasq, alias, règle de blocage du web direct |
 | `linux.ps1` | SRV-AD01 | Lance go.sh par SSH sur les deux machines Linux, l'une après l'autre |
 | `srv-ad01.ps1` | SRV-AD01 | Heure (NTP), DNS, comptes et GG-Internet, svc-squid, OU Postes-G4, GPO proxy Edge, GPO certificat, agent Wazuh |
-| `srv-wazuh01.sh` | SRV-WAZUH01 | Heure sur l'AD, règle Wazuh 100200 (accès Squid visibles), vérification des services, des agents et des événements Squid |
+| `srv-wazuh01.sh` | SRV-WAZUH01 | Heure sur l'AD, règle Wazuh 100200 (accès Squid visibles), règles IDS 100210/100211, vérification des services, des agents et des événements Squid et Suricata |
 | `srv-proxy01.sh` | SRV-PROXY01 | Heure et DNS, paquets, agent Wazuh + journal Squid, CA et SSL-Bump, Kerberos, lecture de GG-Internet, configuration finale de Squid |
 | `pc-clt01.ps1` | PC-CLT01 | Agent Wazuh, GPO, vérification du certificat, du proxy, de Kerberos et du blocage du web direct |
+| `fw01-ids.ps1` | SRV-AD01 | Active Suricata (IDS) sur le LAN de FW01 par l'API, avec les règles ET open scan, attack_response et policy |
+| `scan-demo.sh` | SRV-PROXY01 | Installe nmap et lance les scans de démonstration détectés par Suricata et Wazuh |
+| `webmin.sh` | SRV-PROXY01 | Installe Webmin (interface graphique de Squid) et Calamaris (rapports web), accès réservé à SRV-AD01 |
 | `test.ps1` | SRV-AD01, PC-CLT01 | Recette : reconnaît la machine et lance les tests (lecture seule) |
 | `test-srv-ad01.ps1` | SRV-AD01 | Tests de l'AD : réseau, comptes, groupe, SPN, DNS, heure, GPO, agent Wazuh, ports |
-| `test-fw01.ps1` | SRV-AD01 | Tests de FW01 : ping, web, DNS, NAT ; règle, alias, agent Wazuh et Dnsmasq si une clé API est présente |
-| `test-linux.ps1` | SRV-AD01 | Tests de SRV-PROXY01 et SRV-WAZUH01 par SSH : Squid, HTTPS, Kerberos, annuaire, journaux, Wazuh, agents, alertes |
+| `test-fw01.ps1` | SRV-AD01 | Tests de FW01 : ping, web, DNS, NAT ; règle, alias, agent Wazuh, Dnsmasq et Suricata si une clé API est présente |
+| `test-linux.ps1` | SRV-AD01 | Tests de SRV-PROXY01 et SRV-WAZUH01 par SSH : Squid, HTTPS, Kerberos, annuaire, journaux, Webmin, Wazuh, agents, alertes Squid et Suricata |
 | `test-pc-clt01.ps1` | PC-CLT01 | Tests du poste : domaine, heure, GPO, certificat, blocage du web direct, HTTPS inspecté, Kerberos, autorisation selon GG-Internet |
 
 ## À savoir

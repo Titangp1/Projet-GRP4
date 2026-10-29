@@ -8,8 +8,9 @@ $ErrorActionPreference = "Continue"
 $script:ok = 0; $script:ko = 0
 function Titre($t) { Write-Host "`n=== $t ===" -ForegroundColor Cyan }
 function Test-Point([string]$nom, [scriptblock]$test, [string]$aide = "") {
-    try { $r = & $test } catch { $r = $false }
-    if ($r -eq $true) { Write-Host "[OK]    $nom" -ForegroundColor Green; $script:ok++ }
+    # Un -match sur une liste renvoie les lignes trouvees (pas $true) : liste non vide = reussi
+    try { $r = & $test; if ($r -is [array]) { $r = $r.Count -gt 0 -and $r -notcontains $false } else { $r = [bool]$r } } catch { $r = $false }
+    if ($r) { Write-Host "[OK]    $nom" -ForegroundColor Green; $script:ok++ }
     else { Write-Host "[ECHEC] $nom" -ForegroundColor Red; if ($aide) { Write-Host "        -> $aide" -ForegroundColor DarkYellow }; $script:ko++ }
 }
 function Info([string]$t) { Write-Host "[INFO]  $t" -ForegroundColor Yellow }
@@ -63,6 +64,14 @@ public class ToutAccepterG4T : ICertificatePolicy {
     Test-Point "Agent Wazuh de FW01 en marche" { (Lire "wazuhagent/service/status").status -eq "running" }
     Test-Point "Agent Wazuh relie a 192.168.10.30" { (Lire "wazuhagent/settings/get").agent.general.server_address -eq "192.168.10.30" }
     Test-Point "Dnsmasq desactive (adresses fixes)" { (Lire "dnsmasq/settings/get").dnsmasq.enable -eq "0" }
+    Titre "3. IDS Suricata (API, lecture seule)"
+    $g = $null; try { $g = (Lire "ids/settings/get").ids.general } catch { }
+    Test-Point "Suricata active" { $g.enabled -eq "1" } "fw01-ids.ps1 ou guide etape 14"
+    Test-Point "Suricata surveille l'interface LAN" { $g.interfaces.lan.selected -eq 1 }
+    Test-Point "Service Suricata en marche" { (Lire "ids/service/status").status -eq "running" }
+    $jeux = $null; try { $jeux = (Lire "ids/settings/listRulesets").rows } catch { }
+    Test-Point "Jeu de regles ET open emerging-scan active" { [bool]($jeux | Where-Object { $_.filename -match "^emerging-scan" -and "$($_.enabled)" -eq "1" }) }
+    if ($g) { Info ("Mode : {0}" -f $(if ($g.ips -eq "1") { "IPS (blocage)" } else { "IDS (alerte seulement)" })) }
     Info "Pensez a supprimer la cle API apres les tests (onglet ApiKeys)."
 }
 

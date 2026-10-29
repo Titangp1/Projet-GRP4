@@ -52,6 +52,12 @@ t "Service wazuh-agent actif" 'systemctl is-active wazuh-agent'
 t "Agent connecte au serveur" 'grep -q "status=.connected." /var/ossec/var/run/wazuh-agentd.state'
 t "Serveur = 192.168.10.30" 'grep -q "<address>192.168.10.30</address>" /var/ossec/etc/ossec.conf'
 t "Journal Squid suivi par l'agent" 'grep -q "/var/log/squid/access.log" /var/ossec/etc/ossec.conf'
+titre "6. Interface graphique (Webmin) et outil de scan"
+t "Service webmin actif" 'systemctl is-active webmin' "Lancer webmin.sh (guide etape 15)"
+t "Webmin ecoute sur 10000" 'ss -ltn | grep -q ":10000 "'
+t "Webmin reserve a SRV-AD01 (allow)" 'grep -q "^allow=.*192.168.10.10" /etc/webmin/miniserv.conf'
+t "Calamaris installe (rapports Squid)" 'command -v calamaris'
+t "nmap installe (demonstration IDS)" 'command -v nmap' "Lancer scan-demo.sh (guide etape 14)"
 bilan
 '@
 
@@ -65,6 +71,7 @@ titre "2. Services Wazuh"
 for s in wazuh-indexer wazuh-manager wazuh-dashboard filebeat; do t "Service $s actif" "systemctl is-active $s"; done
 for p in 443 1514 1515 9200 55000; do t "Port $p en ecoute" "ss -ltn | grep -q \":$p \""; done
 t "Regle locale 100200 (acces Squid)" 'grep -q "id=\"100200\"" /var/ossec/etc/rules/local_rules.xml'
+t "Regles locales IDS 100210 et 100211" 'grep -q "id=\"100210\"" /var/ossec/etc/rules/local_rules.xml && grep -q "id=\"100211\"" /var/ossec/etc/rules/local_rules.xml' "Relancer go.sh sur SRV-WAZUH01"
 titre "3. Agents"
 A=$(/var/ossec/bin/agent_control -l 2>/dev/null)
 for n in SRV-AD01 PC-CLT01 SRV-PROXY01 fw01; do t "Agent $n actif" "echo \"\$A\" | grep -i \"Name: $n\" | grep -q Active"; done
@@ -74,7 +81,10 @@ t "Alertes Squid recues" "grep -q '\"squid\"' $J"
 t "Refus Squid de p.durand dans Wazuh" "grep '\"squid\"' $J | grep -q 'p.durand'" "Naviguer en session p.durand, attendre une minute"
 t "Evenements Windows de PC-CLT01" "grep -q '\"name\":\"PC-CLT01\"' $J"
 t "Evenements du pare-feu FW01" "grep -qi '\"name\":\"fw01' $J"
+t "Alertes IDS Suricata de FW01" "grep -q '\"suricata\"' $J" "Cocher Intrusion detection events dans l'agent de FW01, lancer scan-demo.sh"
+t "Scan nmap detecte (regle 100210)" "grep -q '\"id\":\"100210\"' $J" "Lancer scan-demo.sh sur SRV-PROXY01"
 info "Alertes Squid du jour : $(grep -c '"squid"' $J 2>/dev/null)"
+info "Alertes Suricata du jour : $(grep -c '"suricata"' $J 2>/dev/null)"
 bilan
 '@
 

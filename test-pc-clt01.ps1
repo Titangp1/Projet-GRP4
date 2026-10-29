@@ -9,8 +9,9 @@ $ErrorActionPreference = "Continue"
 $script:ok = 0; $script:ko = 0
 function Titre($t) { Write-Host "`n=== $t ===" -ForegroundColor Cyan }
 function Test-Point([string]$nom, [scriptblock]$test, [string]$aide = "") {
-    try { $r = & $test } catch { $r = $false }
-    if ($r -eq $true) { Write-Host "[OK]    $nom" -ForegroundColor Green; $script:ok++ }
+    # Un -match sur une liste renvoie les lignes trouvees (pas $true) : liste non vide = reussi
+    try { $r = & $test; if ($r -is [array]) { $r = $r.Count -gt 0 -and $r -notcontains $false } else { $r = [bool]$r } } catch { $r = $false }
+    if ($r) { Write-Host "[OK]    $nom" -ForegroundColor Green; $script:ok++ }
     else { Write-Host "[ECHEC] $nom" -ForegroundColor Red; if ($aide) { Write-Host "        -> $aide" -ForegroundColor DarkYellow }; $script:ko++ }
 }
 function Info([string]$t) { Write-Host "[INFO]  $t" -ForegroundColor Yellow }
