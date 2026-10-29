@@ -1,5 +1,5 @@
 #!/bin/bash
-# Projet 2 - Groupe B1-4 - SCRIPT LINUX UNIQUE (SRV-PROXY01 et SRV-WAZUH01)
+# Projet 2 - Groupe B1-4 - SCRIPT LINUX UNIQUE (SRV-PROXY01 et SRV-WAZUH01) - version finale du 29/10/2026
 # Reconnait la machine par son nom. Aucun mot de passe n'est ecrit ici : ils sont demandes a l'execution.
 #   sudo bash projet.sh          configuration de la machine (relancable sans risque)
 #   sudo bash projet.sh test     recette (lecture seule)
@@ -239,7 +239,7 @@ command -v calamaris >/dev/null && ok "Calamaris present (icone 'Calamaris Log A
 squid -k parse >/dev/null 2>&1 && ok "Configuration Squid toujours valide (rien n'a ete modifie)"
 
 echo -e "\nOuvrir dans Edge sur SRV-AD01 : https://192.168.10.20:10000"
-echo "Connexion : compte root de SRV-PROXY01, ou adminproxy (membre de sudo) si root n'a pas de mot de passe."
+echo "Connexion : compte adminproxy (membre de sudo). Le compte root de Debian n'a pas de mot de passe et ne peut pas se connecter."
 echo "Puis : Servers > Squid Proxy Server. Les regles du projet sont dans /etc/squid/conf.d/groupe4.conf"
 echo "(Edit Config Files) : ne pas les recreer dans les ecrans Access Control de Webmin."
 }
@@ -447,9 +447,10 @@ t "Mot de passe svc-squid protege (640)" '[ "$(stat -c %a /etc/squid/ldap.pass)"
 L='/usr/lib/squid/ext_ldap_group_acl -R -K -S -b dc=groupe4,dc=internal -D svc-squid@groupe4.internal -W /etc/squid/ldap.pass -h srv-ad01.groupe4.internal -f (&(objectClass=person)(sAMAccountName=%u)(memberOf=cn=%g,ou=Utilisateurs-G4,dc=groupe4,dc=internal))'
 t "Annuaire : j.martin membre de GG-Internet" 'echo "j.martin GG-Internet" | sudo -u proxy $L | grep -q ^OK'
 t "Annuaire : p.durand refuse" 'echo "p.durand GG-Internet" | sudo -u proxy $L | grep -q ^ERR'
-t "Journal : acces autorises de j.martin" 'grep -q "j.martin@GROUPE4.INTERNAL" /var/log/squid/access.log'
-t "Journal : refus 403 de p.durand" 'grep "p.durand@GROUPE4.INTERNAL" /var/log/squid/access.log | grep -q "/403 "' "Naviguer en session p.durand sur PC-CLT01"
-t "Journal : pages HTTPS completes (GET https://)" 'grep -q " GET https://" /var/log/squid/access.log'
+LOGS="/var/log/squid/access.log /var/log/squid/access.log.1"   # journal du jour et de la veille (rotation quotidienne)
+t "Journal : acces autorises de j.martin" 'grep -hqs "j.martin@GROUPE4.INTERNAL" $LOGS'
+t "Journal : refus 403 de p.durand" 'grep -hs "p.durand@GROUPE4.INTERNAL" $LOGS | grep -q "/403 "' "Naviguer en session p.durand sur PC-CLT01, puis relancer"
+t "Journal : pages HTTPS completes (GET https://)" 'grep -hqs " GET https://" $LOGS'
 titre "5. Agent Wazuh"
 t "Service wazuh-agent actif" 'systemctl is-active wazuh-agent'
 t "Agent connecte au serveur" 'grep -q "status=.connected." /var/ossec/var/run/wazuh-agentd.state'
@@ -481,7 +482,7 @@ for n in SRV-AD01 PC-CLT01 SRV-PROXY01 fw01; do t "Agent $n actif" "echo \"\$A\"
 titre "4. Evenements recus"
 J=/var/ossec/logs/alerts/alerts.json
 t "Alertes Squid recues" "grep -q '\"squid\"' $J"
-t "Refus Squid de p.durand dans Wazuh" "grep '\"squid\"' $J | grep -q 'p.durand'" "Naviguer en session p.durand, attendre une minute"
+t "Refus Squid de p.durand dans Wazuh" "grep '\"squid\"' $J | grep -q 'p.durand'" "Naviguer en session p.durand sur PC-CLT01, attendre 2 minutes, relancer"
 t "Evenements Windows de PC-CLT01" "grep -q '\"name\":\"PC-CLT01\"' $J"
 t "Evenements du pare-feu FW01" "grep -qi '\"name\":\"fw01' $J"
 t "Alertes IDS Suricata de FW01" "grep -q '\"suricata\"' $J" "Cocher Intrusion detection events dans l'agent de FW01, option 4 de projet.ps1"

@@ -1,4 +1,4 @@
-# Projet 2 – Groupe B1-4 : scripts d'automatisation
+# Projet 2 – Groupe B1-4 : scripts d'automatisation (version finale du 29 octobre 2026)
 
 Deux scripts seulement :
 
@@ -64,6 +64,10 @@ powershell -ExecutionPolicy Bypass -File C:\Users\Public\g4\projet.ps1
 ```
 
 Sans droits d'administrateur, le script lance directement la recette. Les rapports `recette-*.txt` sont enregistrés sur le Bureau.
+
+Les tests « refus 403 de p.durand » (journal de Squid et Wazuh) cherchent une trace récente : s'ils échouent, naviguez quelques minutes en session p.durand sur PC-CLT01, attendez 2 minutes et relancez la recette.
+
+Résultat de la recette finale du 29 octobre 2026 : SRV-AD01 44/44, FW01 17/17, SRV-PROXY01 36/36, SRV-WAZUH01 25/25, PC-CLT01 18/18 en session j.martin et 18/18 en session p.durand.
 
 ## Optionnel – SSH sans mot de passe depuis SRV-AD01
 

@@ -1,5 +1,5 @@
 <#
-  Projet 2 - Groupe B1-4 - SCRIPT WINDOWS UNIQUE (SRV-AD01 et PC-CLT01)
+  Projet 2 - Groupe B1-4 - SCRIPT WINDOWS UNIQUE (SRV-AD01 et PC-CLT01) - version finale du 29/10/2026
   Un menu propose la configuration et la recette (tests en lecture seule) de chaque partie du projet.
   Aucun mot de passe n'est ecrit ici : ils sont demandes a l'execution.
 
@@ -11,6 +11,26 @@
 #>
 $Depot = "https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# Lecture JSON de l'API d'OPNsense. ConvertFrom-Json (PowerShell 5.1) refuse certaines reponses qui contiennent
+# des cles ne differant que par la casse : on utilise JavaScriptSerializer, qui les accepte.
+Add-Type -AssemblyName System.Web.Extensions
+function Lire-Json([string]$uri, $entetes) {
+    $js = New-Object Web.Script.Serialization.JavaScriptSerializer
+    $js.MaxJsonLength = [int]::MaxValue
+    $js.DeserializeObject((Invoke-WebRequest -Uri $uri -Headers $entetes -Method Get -UseBasicParsing -TimeoutSec 600).Content)
+}
+# Recherche de la regle "Web direct interdit" (selon la version, searchRule pagine ou filtre par interface)
+function Trouver-Regle([string]$base, $entetes, [string]$desc) {
+    foreach ($q in @("firewall/filter/searchRule?interface=lan&rowCount=-1&searchPhrase=Web%20direct",
+                     "firewall/filter/searchRule?rowCount=-1&searchPhrase=Web%20direct",
+                     "firewall/filter/searchRule?rowCount=-1",
+                     "firewall/filter/searchRule")) {
+        try { $r = (Lire-Json "$base/api/$q" $entetes).rows | Where-Object { $_.description -eq $desc } | Select-Object -First 1 } catch { $r = $null }
+        if ($r) { return $r }
+    }
+    return $null
+}
 
 # ======================================================================== CONFIGURATION
 function Config-AD {
@@ -258,6 +278,7 @@ $H = @{ Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::AS
 
 function Api($methode, $chemin, $corps) {
     # Pas de Content-Type JSON sur un GET : OPNsense repond alors 400 (corps JSON vide).
+    if ($methode -eq "GET") { return Lire-Json "$Fw/api/$chemin" $H }
     $p = @{ Uri = "$Fw/api/$chemin"; Method = $methode; Headers = $H; UseBasicParsing = $true }
     if ($methode -eq "POST") {
         $p.ContentType = "application/json"
@@ -326,8 +347,7 @@ Api POST "firewall/alias/reconfigure" | Out-Null
 
 # ---------------------------------------------------------------- 4. Regle
 Etape "4. Regle : web direct interdit pour PC-CLT01"
-$regles = Api GET "firewall/filter/searchRule"
-if (@($regles.rows | Where-Object { $_.description -eq $Desc }).Count -gt 0) {
+if (Trouver-Regle $Fw $H $Desc) {
     OK "Regle deja presente"
 } else {
     $regle = @{ rule = @{
@@ -344,7 +364,8 @@ Info "Les regles creees par l'API passent avant 'Default allow LAN to any rule'.
 
 # ---------------------------------------------------------------- Bilan
 Etape "Bilan"
-(Api GET "firewall/filter/searchRule").rows | Select-Object enabled, action, source_net, destination_port, description | Format-Table -AutoSize
+$rg = Trouver-Regle $Fw $H $Desc
+if ($rg) { OK ("Regle '{0}' : action {1}, source {2}, ports {3}" -f $rg.description, $rg.action, $rg.source_net, $rg.destination_port) }
 Write-Host "A faire ensuite :" -ForegroundColor Cyan
 Write-Host " 1. PC-CLT01 : projet.ps1 option 1 ; la section 6 doit afficher 'Acces direct au web bloque'."
 Write-Host " 2. OPNsense > Firewall > Log Files > Live View : blocages de 192.168.10.100 (capture C12)."
@@ -391,6 +412,7 @@ $H = @{ Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::AS
 
 function Api($methode, $chemin, $corps) {
     # Pas de Content-Type JSON sur un GET : OPNsense repond alors 400
+    if ($methode -eq "GET") { return Lire-Json "$Fw/api/$chemin" $H }
     $p = @{ Uri = "$Fw/api/$chemin"; Method = $methode; Headers = $H; UseBasicParsing = $true; TimeoutSec = 600 }
     if ($methode -eq "POST") {
         $p.ContentType = "application/json"
@@ -607,25 +629,8 @@ public class ToutAccepterG4T : ICertificatePolicy {
     $cle = (($l | Where-Object { $_ -match '^key=' }) -replace '^key=', '').Trim()
     $sec = (($l | Where-Object { $_ -match '^secret=' }) -replace '^secret=', '').Trim()
     $H = @{ Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${cle}:${sec}")) }
-    # ConvertFrom-Json de PowerShell 5.1 refuse les reponses d'OPNsense qui contiennent des cles ne differant
-    # que par la casse (listes d'options des pages de reglages) : on lit le JSON avec JavaScriptSerializer.
-    Add-Type -AssemblyName System.Web.Extensions
-    $js = New-Object Web.Script.Serialization.JavaScriptSerializer
-    $js.MaxJsonLength = [int]::MaxValue
-    function Lire($chemin) {
-        $brut = (Invoke-WebRequest -Uri "https://$Fw/api/$chemin" -Headers $H -Method Get -UseBasicParsing).Content
-        $js.DeserializeObject($brut)
-    }
-
-    # Selon la version, searchRule pagine ou filtre par interface : on essaie plusieurs recherches
-    $regle = $null
-    foreach ($q in @("firewall/filter/searchRule?interface=lan&rowCount=-1&searchPhrase=Web%20direct",
-                     "firewall/filter/searchRule?rowCount=-1&searchPhrase=Web%20direct",
-                     "firewall/filter/searchRule?rowCount=-1",
-                     "firewall/filter/searchRule")) {
-        try { $regle = (Lire $q).rows | Where-Object { $_.description -eq "Web direct interdit, passer par le proxy" } | Select-Object -First 1 } catch { }
-        if ($regle) { break }
-    }
+    function Lire($chemin) { Lire-Json "https://$Fw/api/$chemin" $H }
+    $regle = Trouver-Regle "https://$Fw" $H "Web direct interdit, passer par le proxy"
     Test-Point "Regle 'Web direct interdit' presente" { [bool]$regle } "Firewall > Rules : verifier la regle (le blocage reel se teste sur PC-CLT01)"
     if ($regle) {
         Test-Point "Regle active, action block, journalisee" { $regle.enabled -eq "1" -and $regle.action -match "block" -and $regle.log -eq "1" }
@@ -764,14 +769,14 @@ switch ($env:COMPUTERNAME) {
             Write-Host " Q  Quitter"
             Write-Host " Ordre d'une installation complete : 1, 2, 1, puis option 1 sur PC-CLT01, puis 3, puis 4." -ForegroundColor DarkGray
             $c = (Read-Host "Choix").Trim().ToUpper()
-            switch ($c) {
+            try { switch ($c) {
                 "1" { Config-AD }
                 "2" { Config-Linux }
                 "3" { Config-FW01 }
                 "4" { Demo-Scan }
                 "5" { Recette-AD; Recette-FW01; Recette-Linux }
                 "6" { Recette-FW01 }
-            }
+            } } catch { Write-Host "[!!] Erreur : $($_.Exception.Message)" -ForegroundColor Red; try { Stop-Transcript | Out-Null } catch { } }
         } while ($c -ne "Q")
     }
     "PC-CLT01" {
@@ -782,7 +787,7 @@ switch ($env:COMPUTERNAME) {
             Write-Host " 5  Recette du poste (lecture seule ; a faire aussi en session j.martin et p.durand)"
             Write-Host " Q  Quitter"
             $c = (Read-Host "Choix").Trim().ToUpper()
-            switch ($c) { "1" { Config-PC } "5" { Recette-PC } }
+            try { switch ($c) { "1" { Config-PC } "5" { Recette-PC } } } catch { Write-Host "[!!] Erreur : $($_.Exception.Message)" -ForegroundColor Red; try { Stop-Transcript | Out-Null } catch { } }
         } while ($c -ne "Q")
     }
     default { Write-Host "[!!] Machine $env:COMPUTERNAME : lancez ce script sur SRV-AD01 ou PC-CLT01" -ForegroundColor Red }
