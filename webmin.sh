@@ -40,11 +40,10 @@ fi
 
 etape "3. Acces a Webmin limite a SRV-AD01 ($ADMIN) et a la machine elle-meme"
 CONF=/etc/webmin/miniserv.conf
-if grep -q '^allow=' "$CONF"; then
-  sed -i "s/^allow=.*/allow=127.0.0.1 $ADMIN/" "$CONF"
-else
-  echo "allow=127.0.0.1 $ADMIN" >> "$CONF"
-fi
+# Webmin ecoute aussi en IPv6 : un client IPv4 peut lui apparaitre sous la forme ::ffff:192.168.10.10
+sed -i '/^allow=/d' "$CONF"
+[ -z "$(tail -c1 "$CONF")" ] || echo >> "$CONF"
+echo "allow=127.0.0.1 ::1 $ADMIN ::ffff:$ADMIN" >> "$CONF"
 systemctl enable webmin >/dev/null 2>&1 || true
 systemctl restart webmin
 ok "Webmin redemarre"

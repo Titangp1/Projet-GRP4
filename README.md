@@ -120,6 +120,20 @@ ssh -t adminproxy@192.168.10.20 'curl -fsSL https://raw.githubusercontent.com/Ti
 
 Puis Edge sur SRV-AD01 : https://192.168.10.20:10000 (certificat auto-signé : Avancé ▸ Continuer). Servers ▸ **Squid Proxy Server**. Webmin n'est accessible que depuis SRV-AD01. Les règles du projet restent dans `/etc/squid/conf.d/groupe4.conf` (icône Edit Config Files) : ne pas les recréer dans les écrans Access Control.
 
+### Dépannage Webmin
+
+« ERROR - ACCESS DENIED FOR 192.168.10.10 » : la liste des adresses autorisées ne contient pas la forme IPv6 de l'adresse de l'AD. PowerShell sur SRV-AD01 (mot de passe d'adminproxy, puis sudo), puis F5 dans Edge :
+
+```powershell
+ssh -t adminproxy@192.168.10.20 'sudo sed -i /^allow=/d /etc/webmin/miniserv.conf; echo allow=127.0.0.1 ::1 192.168.10.10 ::ffff:192.168.10.10 | sudo tee -a /etc/webmin/miniserv.conf; sudo systemctl restart webmin; grep -n ^allow /etc/webmin/miniserv.conf'
+```
+
+Apache installé avec squid-cgi (port 80 ouvert sur le proxy) : à arrêter, Webmin n'en a pas besoin.
+
+```powershell
+ssh -t adminproxy@192.168.10.20 'sudo systemctl disable --now apache2; ss -ltn | grep 10000'
+```
+
 ## Recette : tester toutes les machines (lecture seule)
 
 Les scripts `test*.ps1` vérifient tout le projet sans modifier aucune configuration. Chaque test affiche [OK] ou [ECHEC] avec une piste de correction, et un rapport `recette-*.txt` est enregistré sur le Bureau.

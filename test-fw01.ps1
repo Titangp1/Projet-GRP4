@@ -50,7 +50,15 @@ public class ToutAccepterG4T : ICertificatePolicy {
     $cle = (($l | Where-Object { $_ -match '^key=' }) -replace '^key=', '').Trim()
     $sec = (($l | Where-Object { $_ -match '^secret=' }) -replace '^secret=', '').Trim()
     $H = @{ Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${cle}:${sec}")) }
-    function Lire($chemin) { Invoke-RestMethod -Uri "https://$Fw/api/$chemin" -Headers $H -Method Get -UseBasicParsing }
+    # ConvertFrom-Json de PowerShell 5.1 refuse les reponses d'OPNsense qui contiennent des cles ne differant
+    # que par la casse (listes d'options des pages de reglages) : on lit le JSON avec JavaScriptSerializer.
+    Add-Type -AssemblyName System.Web.Extensions
+    $js = New-Object Web.Script.Serialization.JavaScriptSerializer
+    $js.MaxJsonLength = [int]::MaxValue
+    function Lire($chemin) {
+        $brut = (Invoke-WebRequest -Uri "https://$Fw/api/$chemin" -Headers $H -Method Get -UseBasicParsing).Content
+        $js.DeserializeObject($brut)
+    }
 
     $regles = (Lire "firewall/filter/searchRule").rows
     $r = $regles | Where-Object { $_.description -eq "Web direct interdit, passer par le proxy" } | Select-Object -First 1
