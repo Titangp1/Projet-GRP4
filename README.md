@@ -146,6 +146,12 @@ iwr https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/test.ps1 -UseBas
 
 Pour tester aussi la configuration de FW01 par son API (lecture seule), créez avant une clé API (étape 5) : le test la lit dans Téléchargements. Supprimez-la ensuite.
 
+Pour relancer **seulement le test de FW01** (aucun mot de passe demandé), PowerShell sur SRV-AD01 :
+
+```powershell
+iwr https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/test-fw01.ps1 -UseBasicParsing -OutFile $env:TEMP\test-fw01.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\test-fw01.ps1
+```
+
 **PC-CLT01**, session GROUPE4\j.martin (le web direct étant bloqué, le téléchargement passe par le proxy) :
 
 ```powershell
