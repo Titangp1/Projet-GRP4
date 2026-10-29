@@ -5,7 +5,9 @@
     2. Dnsmasq arrete (aucun DHCP : toutes les adresses sont fixes)
     3. Alias Postes_clients (192.168.10.100) et Ports_web (80, 443)
     4. Regle LAN : blocage du web direct de PC-CLT01 (proxy obligatoire), journalisee
-  Prealable, une seule fois : creer une cle API pour root dans OPNsense. Le fichier ..._apikey.txt
+  Prealable, une seule fois : creer une cle API pour root dans OPNsense 25.7 :
+  System > Access > Users, onglet Users, ligne root, colonne Commands, icone ticket
+  ("Create and download API key for this user") > Yes. Le fichier fw01.groupe4.internal_root_apikey.txt
   se telecharge dans Telechargements de SRV-AD01 : le script le lit tout seul (sinon il demande la cle).
   Ne publiez jamais ce fichier.
   Commande, dans PowerShell sur SRV-AD01 :
@@ -53,8 +55,12 @@ if ($fichier) {
 $H = @{ Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${cle}:${secret}")) }
 
 function Api($methode, $chemin, $corps) {
-    $p = @{ Uri = "$Fw/api/$chemin"; Method = $methode; Headers = $H; ContentType = "application/json"; UseBasicParsing = $true }
-    if ($methode -eq "POST") { $p.Body = if ($corps) { $corps | ConvertTo-Json -Depth 6 -Compress } else { "{}" } }
+    # Pas de Content-Type JSON sur un GET : OPNsense repond alors 400 (corps JSON vide).
+    $p = @{ Uri = "$Fw/api/$chemin"; Method = $methode; Headers = $H; UseBasicParsing = $true }
+    if ($methode -eq "POST") {
+        $p.ContentType = "application/json"
+        $p.Body = if ($corps) { $corps | ConvertTo-Json -Depth 6 -Compress } else { "{}" }
+    }
     Invoke-RestMethod @p
 }
 
