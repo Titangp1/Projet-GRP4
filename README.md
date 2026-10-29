@@ -8,6 +8,7 @@ Un script par machine. Chacun peut être relancé sans risque : ce qui est déj�
 | `srv-wazuh01.sh` | SRV-WAZUH01 | Heure sur l'AD, règle Wazuh 100200 (accès Squid visibles), vérification des services |
 | `srv-proxy01.sh` | SRV-PROXY01 | Heure et DNS, paquets, agent Wazuh + journal Squid, CA et SSL-Bump, Kerberos (keytab), lecture de GG-Internet, configuration finale de Squid |
 | `pc-clt01.ps1` | PC-CLT01 | Agent Wazuh, application des GPO, vérification du certificat, du proxy et de Kerberos |
+| `go.ps1`, `go.sh` | Toutes | Lanceurs : reconnaissent la machine et exécutent le bon script |
 
 OPNsense (agent Wazuh, règle de blocage du web direct) reste à faire dans son interface web : étapes 8 et 12 du guide.
 
@@ -22,25 +23,23 @@ Prérequis : les étapes 1 à 7 du guide sont faites (VM installées, AD promu, 
 5. **PC-CLT01** : `pc-clt01.ps1`, puis redémarrage et test en session GROUPE4\j.martin
 6. **FW01** : règle de blocage (étape 12 du guide), en dernier
 
-Remplacez `UTILISATEUR/DEPOT` par votre compte et votre dépôt GitHub.
+## Une seule commande par machine
 
-### Windows (PowerShell en administrateur)
+Les lanceurs `go.ps1` et `go.sh` reconnaissent la machine par son nom, téléchargent le bon script et l'exécutent.
+
+**Windows** (SRV-AD01 et PC-CLT01), dans PowerShell en administrateur :
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/UTILISATEUR/DEPOT/main/srv-ad01.ps1 -OutFile srv-ad01.ps1 -UseBasicParsing
-powershell -ExecutionPolicy Bypass -File .\srv-ad01.ps1
+iwr https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/go.ps1 -UseBasicParsing | iex
 ```
 
-Sur PC-CLT01, même chose avec `pc-clt01.ps1`.
-
-### Linux (en ssh depuis SRV-AD01)
+**Linux** (SRV-PROXY01 et SRV-WAZUH01), en ssh depuis SRV-AD01 :
 
 ```bash
-wget -O srv-proxy01.sh https://raw.githubusercontent.com/UTILISATEUR/DEPOT/main/srv-proxy01.sh
-sudo bash srv-proxy01.sh
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/go.sh)"
 ```
 
-Sur SRV-WAZUH01, même chose avec `srv-wazuh01.sh`.
+Après une modification d'un fichier sur GitHub, attendez environ 5 minutes : raw.githubusercontent.com garde l'ancienne version en cache.
 
 ## À savoir
 
