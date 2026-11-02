@@ -1,4 +1,4 @@
-# Projet 2 – Groupe B1-4 : scripts d'automatisation (version finale du 29 octobre 2026)
+# Projet 2 – Groupe B1-4 : scripts d'automatisation (version finale du 2 novembre 2026)
 
 Deux scripts seulement :
 
@@ -9,7 +9,7 @@ Deux scripts seulement :
 
 Chaque partie peut être relancée sans risque : ce qui est déjà fait est sauté. Aucun mot de passe n'est écrit dans le dépôt, ils sont demandés à l'exécution. La recette ne modifie aucune configuration.
 
-Prérequis : étapes 1 à 7 du guide faites (VM installées, AD promu, PC-CLT01 dans le domaine, Squid et Wazuh installés).
+Prérequis : étapes 1 à 7 du guide faites (VM installées, AD promu, PC-CLT01 dans le domaine, Squid et Wazuh installés), et le logo `image.jpg` posé sur le Bureau de SRV-AD01 avant l'option 2.
 
 Astuce : ouvrez cette page dans Edge sur SRV-AD01 ou PC-CLT01, copiez la commande avec le bouton de copie et collez-la dans PowerShell avec un clic droit.
 
@@ -26,7 +26,7 @@ Menu sur SRV-AD01 :
 | Option | Effet |
 | --- | --- |
 | 1 | SRV-AD01 : heure, DNS, comptes et GG-Internet, svc-squid, OU Postes-G4, GPO du proxy et du certificat, agent Wazuh |
-| 2 | Par SSH : SRV-WAZUH01 (règles 100200, 100210, 100211) puis SRV-PROXY01 (agent Wazuh, CA et SSL-Bump, Kerberos, groupe AD, Squid final, Webmin et Calamaris). Mots de passe : SSH puis sudo pour chaque serveur, puis Administrateur du domaine et svc-squid pour le proxy |
+| 2 | Par SSH : SRV-WAZUH01 (règles 100200, 100210, 100211) puis SRV-PROXY01 (logo envoyé depuis le Bureau, agent Wazuh, CA et SSL-Bump, Kerberos, groupe AD, pages d'erreur personnalisées, blocage des réseaux sociaux, Squid final, Webmin et Calamaris). Mots de passe : SSH puis sudo pour chaque serveur, puis Administrateur du domaine et svc-squid pour le proxy |
 | 3 | FW01 par l'API : agent Wazuh, Dnsmasq arrêté, alias, règle « Web direct interdit », puis IDS Suricata |
 | 4 | Démonstration IDS : scans nmap depuis SRV-PROXY01 |
 | 5 | Recette complète : AD, FW01, proxy et Wazuh |
@@ -67,7 +67,9 @@ Sans droits d'administrateur, le script lance directement la recette. Les rappor
 
 Les tests « refus 403 de p.durand » (journal de Squid et Wazuh) cherchent une trace récente : s'ils échouent, naviguez quelques minutes en session p.durand sur PC-CLT01, attendez 2 minutes et relancez la recette.
 
-Résultat de la recette finale du 29 octobre 2026 : SRV-AD01 44/44, FW01 17/17, SRV-PROXY01 36/36, SRV-WAZUH01 25/25, PC-CLT01 18/18 en session j.martin et 18/18 en session p.durand.
+Résultat de la recette du 29 octobre 2026 : SRV-AD01 44/44, FW01 17/17, SRV-PROXY01 36/36, SRV-WAZUH01 25/25, PC-CLT01 18/18 en session j.martin et 18/18 en session p.durand.
+
+Version du 2 novembre 2026 (logo et réseaux sociaux) : 3 tests de plus sur SRV-PROXY01 (39) et 3 de plus sur PC-CLT01 dans chaque session (21), soit 167 tests au total. Lancez la recette de PC-CLT01 avant celle de SRV-AD01 : le test « réseau social refusé » du proxy cherche le refus de YouTube dans le journal.
 
 ## Optionnel – SSH sans mot de passe depuis SRV-AD01
 
@@ -85,4 +87,6 @@ type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh adminproxy@192.168.10.20 "mkdir 
 - Si la GPO du certificat ne s'applique pas, importez `squid-ca.crt` à la main dans GPO-C-CertificatProxy (étape 10.3 du guide).
 - Le mot de passe de svc-squid est stocké sur le proxy dans `/etc/squid/ldap.pass` (lisible par root et Squid seulement). Pour le changer : supprimez ce fichier et relancez l'option 2.
 - Webmin est installé depuis le paquet officiel publié sur GitHub (le dépôt download.webmin.com est refusé depuis le réseau de l'école). Il n'est accessible que depuis SRV-AD01. Les règles du projet restent dans `/etc/squid/conf.d/groupe4.conf` : ne pas les recréer dans les écrans Access Control de Webmin.
+- Réseaux sociaux : la liste des domaines bloqués est dans `/etc/squid/reseaux-sociaux.txt` sur le proxy (YouTube, Facebook, Instagram, TikTok, X, Snapchat). Pour en ajouter un : une ligne `.domaine.com`, puis `sudo squid -k reconfigure`. Ce blocage s'applique à tout le monde, avant la vérification du groupe GG-Internet.
+- Pages d'erreur : modèles dans `/etc/squid/errors-groupe4` (page « Site bloqué » pour les réseaux sociaux, page « Accès à Internet refusé » pour les comptes hors GG-Internet, logo en tête de toutes les autres). Pour changer de logo : remplacer `image.jpg` sur le Bureau de SRV-AD01 et relancer l'option 2.
 - Après une modification d'un fichier sur GitHub, attendez environ 5 minutes avant de relancer : raw.githubusercontent.com garde l'ancienne version en cache.

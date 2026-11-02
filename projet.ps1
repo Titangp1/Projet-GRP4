@@ -1,5 +1,5 @@
 <#
-  Projet 2 - Groupe B1-4 - SCRIPT WINDOWS UNIQUE (SRV-AD01 et PC-CLT01) - version finale du 29/10/2026
+  Projet 2 - Groupe B1-4 - SCRIPT WINDOWS UNIQUE (SRV-AD01 et PC-CLT01) - version finale du 02/11/2026
   Un menu propose la configuration et la recette (tests en lecture seule) de chaque partie du projet.
   Aucun mot de passe n'est ecrit ici : ils sont demandes a l'execution.
 
@@ -222,11 +222,42 @@ if ($proxy.TcpTestSucceeded) { OK "Proxy joignable sur le port 3128" } else { Al
 Write-Host "`nTermine. Redemarrez PC-CLT01, ouvrez une session GROUPE4\j.martin et testez Edge (edge://policy, https://www.debian.org)." -ForegroundColor Cyan
 }
 
+function Preparer-Logo {
+    # Cherche image.jpg (ou image.png) sur un Bureau de SRV-AD01 et la reduit (240 x 120 maximum, JPEG) pour les pages d'erreur de Squid
+    $bureaux = @([Environment]::GetFolderPath("Desktop"), "$env:PUBLIC\Desktop") + (Get-ChildItem C:\Users -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName "Desktop" })
+    $src = $bureaux | Where-Object { Test-Path $_ } | ForEach-Object { Get-ChildItem $_ -File -ErrorAction SilentlyContinue } |
+        Where-Object { $_.BaseName -like "image*" -and $_.Extension -match '^\.(jpe?g|png)$' } | Select-Object -First 1
+    if (-not $src) { Write-Host "[!!] image.jpg introuvable sur le Bureau : pages d'erreur sans logo" -ForegroundColor Red; return $null }
+    Add-Type -AssemblyName System.Drawing
+    $img = [Drawing.Image]::FromFile($src.FullName)
+    $f = [math]::Min(1, [math]::Min(240 / $img.Width, 120 / $img.Height))
+    $w = [int][math]::Max(1, $img.Width * $f); $h = [int][math]::Max(1, $img.Height * $f)
+    $bmp = New-Object Drawing.Bitmap $w, $h
+    $g = [Drawing.Graphics]::FromImage($bmp)
+    $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.Clear([Drawing.Color]::White); $g.DrawImage($img, 0, 0, $w, $h); $g.Dispose(); $img.Dispose()
+    $codec = [Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object MimeType -eq "image/jpeg"
+    $ep = New-Object Drawing.Imaging.EncoderParameters 1
+    $ep.Param[0] = New-Object Drawing.Imaging.EncoderParameter ([Drawing.Imaging.Encoder]::Quality), 85L
+    $out = Join-Path $env:TEMP "logo-guardia.jpg"
+    $bmp.Save($out, $codec, $ep); $bmp.Dispose()
+    Write-Host ("[OK] Logo prepare depuis {0} : {1} x {2} px, {3} octets" -f $src.FullName, $w, $h, (Get-Item $out).Length) -ForegroundColor Green
+    return $out
+}
+
 function Config-Linux {
     # SRV-WAZUH01 puis SRV-PROXY01 : chaque serveur telecharge et lance projet.sh (sans guillemets : PowerShell 5.1 les transmet mal a ssh)
     $cmd = 'curl -fsSL https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/projet.sh -o /tmp/projet.sh && sudo bash /tmp/projet.sh'
     foreach ($m in @(@{ Nom = "SRV-WAZUH01"; Cible = "adminwazuh@192.168.10.30" }, @{ Nom = "SRV-PROXY01"; Cible = "adminproxy@192.168.10.20" })) {
         Write-Host "`n##### $($m.Nom) ($($m.Cible)) - mots de passe : SSH puis sudo #####" -ForegroundColor Cyan
+        if ($m.Nom -eq "SRV-PROXY01") {
+            $logo = Preparer-Logo
+            if ($logo) {
+                Write-Host "Envoi du logo au proxy (mot de passe SSH de adminproxy)" -ForegroundColor Cyan
+                scp -o StrictHostKeyChecking=accept-new $logo "$($m.Cible):/tmp/logo-guardia.jpg"
+                if ($LASTEXITCODE -ne 0) { Write-Host "[!!] Envoi du logo echoue : pages d'erreur sans logo" -ForegroundColor Red }
+            }
+        }
         ssh -t -o StrictHostKeyChecking=accept-new $m.Cible $cmd
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[!!] $($m.Nom) termine avec une erreur (code $LASTEXITCODE)." -ForegroundColor Red
@@ -727,7 +758,30 @@ if ($membre) {
 $tickets = klist 2>&1 | Out-String
 Test-Point "Ticket Kerberos HTTP/srv-proxy01.groupe4.internal obtenu" { $tickets -match "HTTP/srv-proxy01\.groupe4\.internal" } "Verifier l'heure et le nom du proxy (pas d'adresse IP)"
 
-Titre "5. Agent Wazuh"
+Titre "5. Reseaux sociaux bloques et pages d'erreur personnalisees"
+function Via-Proxy([string]$url) {
+    $r = @{ Code = 0; Corps = "" }; $rep = $null
+    try {
+        $rq = [Net.HttpWebRequest]::Create($url)
+        $p = New-Object Net.WebProxy("http://$Proxy`:3128"); $p.UseDefaultCredentials = $true
+        $rq.Proxy = $p; $rq.Timeout = 20000
+        $rep = $rq.GetResponse()
+    } catch [Net.WebException] { $rep = $_.Exception.Response; if (-not $rep) { Info "$url : $($_.Exception.Message)" } }
+    if ($rep) {
+        $r.Code = [int]$rep.StatusCode
+        try { $sr = New-Object IO.StreamReader($rep.GetResponseStream(), [Text.Encoding]::UTF8); $r.Corps = $sr.ReadToEnd(); $sr.Close() } catch { }
+        $rep.Close()
+    }
+    return $r
+}
+$yt = Via-Proxy "https://www.youtube.com/"
+$fb = Via-Proxy "https://www.facebook.com/"
+Info "YouTube : HTTP $($yt.Code) ; Facebook : HTTP $($fb.Code)"
+Test-Point "YouTube bloque par le proxy (HTTP 403)" { $yt.Code -eq 403 } "Relancer l'option 2 de projet.ps1 sur SRV-AD01"
+Test-Point "Facebook bloque par le proxy (HTTP 403)" { $fb.Code -eq 403 }
+Test-Point "Page de blocage personnalisee (reseaux sociaux, logo Guardia)" { $yt.Corps -match "seaux sociaux" -and $yt.Corps -match "data:image/jpeg;base64" } "image.jpg sur le Bureau de SRV-AD01, puis option 2"
+
+Titre "6. Agent Wazuh"
 Test-Point "Service WazuhSvc demarre" { (Get-Service WazuhSvc).Status -eq "Running" }
 $etat = Get-Content "${env:ProgramFiles(x86)}\ossec-agent\wazuh-agent.state" -ErrorAction SilentlyContinue | Out-String
 if ($etat) { Test-Point "Agent connecte au serveur Wazuh" { $etat -match "status='connected'" } }

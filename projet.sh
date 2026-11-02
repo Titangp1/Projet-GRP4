@@ -1,5 +1,5 @@
 #!/bin/bash
-# Projet 2 - Groupe B1-4 - SCRIPT LINUX UNIQUE (SRV-PROXY01 et SRV-WAZUH01) - version finale du 29/10/2026
+# Projet 2 - Groupe B1-4 - SCRIPT LINUX UNIQUE (SRV-PROXY01 et SRV-WAZUH01) - version finale du 02/11/2026
 # Reconnait la machine par son nom. Aucun mot de passe n'est ecrit ici : ils sont demandes a l'execution.
 #   sudo bash projet.sh          configuration de la machine (relancable sans risque)
 #   sudo bash projet.sh test     recette (lecture seule)
@@ -129,7 +129,103 @@ echo "j.martin -> $R1 (attendu OK) ; p.durand -> $R2 (attendu ERR)"
 [[ "$R1" == OK* ]] && ok "Lecture de GG-Internet fonctionnelle" || alerte "j.martin refuse : verifiez le mot de passe dans /etc/squid/ldap.pass (supprimez le fichier et relancez)"
 
 # ---------------------------------------------------------------- 7
-etape "7. Configuration finale de Squid"
+etape "7. Pages d'erreur personnalisees (logo Guardia) et categorie reseaux sociaux"
+# Logo : envoye par projet.ps1 (option 2) depuis le Bureau de SRV-AD01, deja reduit
+if [ -f /tmp/logo-guardia.jpg ]; then install -m 644 /tmp/logo-guardia.jpg /etc/squid/logo-guardia.jpg; rm -f /tmp/logo-guardia.jpg; fi
+LOGO="<b>Guardia Cybersecurity School</b>"
+if [ -f /etc/squid/logo-guardia.jpg ]; then
+  B64=$(base64 -w0 /etc/squid/logo-guardia.jpg)
+  if [ ${#B64} -lt 45000 ]; then
+    LOGO="<img src=\"data:image/jpeg;base64,$B64\" alt=\"Guardia Cybersecurity School\">"
+    ok "Logo integre dans les pages ($(stat -c %s /etc/squid/logo-guardia.jpg) octets)"
+  else
+    alerte "Logo trop lourd (${#B64} caracteres) : texte utilise a la place"
+  fi
+else
+  alerte "Logo absent : placez image.jpg sur le Bureau de SRV-AD01 et relancez l'option 2 (texte utilise en attendant)"
+fi
+SRC=""
+for d in /usr/share/squid/errors/fr /usr/share/squid-langpack/fr /usr/share/squid/errors/templates /usr/share/squid-langpack/templates; do
+  if [ -f "$d/ERR_ACCESS_DENIED" ]; then SRC="$d"; break; fi
+done
+[ -n "$SRC" ] || { alerte "Modeles de pages d'erreur Squid introuvables"; exit 1; }
+D=/etc/squid/errors-groupe4
+rm -rf "$D"; mkdir -p "$D"; cp -L "$SRC"/* "$D"/
+# Logo en tete de toutes les pages d'erreur de Squid
+for f in "$D"/ERR_*; do sed -i "s|<body[^>]*>|&<div id=\"guardia\">$LOGO</div>|" "$f"; done
+# Page du groupe AD (p.durand) et page de la categorie reseaux sociaux
+cat > "$D/ERR_GG_INTERNET" <<EOF
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><title>Acces a Internet refuse</title>
+<style type="text/css"><!-- %l --></style></head>
+<body id="%c"><div id="guardia">$LOGO</div>
+<div id="titles"><h1>Accès à Internet refusé</h1><h2>Votre compte n'est pas autorisé à naviguer</h2></div>
+<div id="content">
+<p>La page <b>%U</b> n'a pas été chargée : seuls les membres du groupe <b>GG-Internet</b> de l'Active Directory peuvent accéder à Internet.</p>
+<p>Pour obtenir l'accès, adressez votre demande au service informatique.</p>
+<p class="info">Utilisateur : %a · Poste : %i · %T</p>
+</div>
+<div id="footer">Proxy SRV-PROXY01 · Groupe 4 · Guardia Cybersecurity School</div>
+</body></html>
+EOF
+cat > "$D/ERR_RESEAUX_SOCIAUX" <<EOF
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><title>Site bloque : reseaux sociaux</title>
+<style type="text/css"><!-- %l --></style></head>
+<body id="%c"><div id="guardia">$LOGO</div>
+<div id="titles"><h1>Site bloqué</h1><h2>Catégorie : réseaux sociaux</h2></div>
+<div id="content">
+<p>L'accès à <b>%U</b> est interdit par la charte informatique de l'entreprise.</p>
+<p>Les réseaux sociaux et plateformes vidéo (YouTube, Facebook, Instagram, TikTok, X, Snapchat) sont bloqués sur le réseau.</p>
+<p class="info">Utilisateur : %a · Poste : %i · %T</p>
+<p>Si cet accès est nécessaire à votre travail, contactez le service informatique.</p>
+</div>
+<div id="footer">Proxy SRV-PROXY01 · Groupe 4 · Guardia Cybersecurity School</div>
+</body></html>
+EOF
+cat > /etc/squid/errors-groupe4.css <<'EOF'
+html { background: #eef1f5; }
+body { font-family: "Segoe UI", Arial, sans-serif; color: #0f1b2d; max-width: 720px; margin: 40px auto; background: #ffffff;
+       border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.12); padding: 32px 40px; }
+#guardia { text-align: center; margin-bottom: 18px; }
+#guardia img { max-width: 240px; max-height: 120px; }
+#titles h1 { color: #c93c3c; font-size: 26px; margin: 0; }
+#titles h2 { color: #24364f; font-size: 17px; font-weight: normal; margin: 6px 0 0; }
+hr { border: 0; border-top: 1px solid #dde3ea; }
+#content { font-size: 15px; line-height: 1.5; }
+.info { color: #5e6b7a; font-size: 13px; }
+#footer { color: #5e6b7a; font-size: 12px; margin-top: 24px; border-top: 1px solid #dde3ea; padding-top: 12px; }
+EOF
+chmod 644 "$D"/* /etc/squid/errors-groupe4.css
+ok "Pages d'erreur dans $D (modeles francais de $SRC)"
+# Categorie reseaux sociaux : un domaine par ligne, le point initial couvre les sous-domaines
+cat > /etc/squid/reseaux-sociaux.txt <<'EOF'
+.youtube.com
+.youtu.be
+.ytimg.com
+.googlevideo.com
+.youtube-nocookie.com
+.youtubei.googleapis.com
+.facebook.com
+.facebook.net
+.fb.com
+.fbcdn.net
+.messenger.com
+.instagram.com
+.cdninstagram.com
+.tiktok.com
+.tiktokcdn.com
+.tiktokv.com
+.twitter.com
+.x.com
+.twimg.com
+.snapchat.com
+EOF
+chmod 644 /etc/squid/reseaux-sociaux.txt
+ok "Categorie reseaux sociaux : $(wc -l < /etc/squid/reseaux-sociaux.txt) domaines dans /etc/squid/reseaux-sociaux.txt"
+
+# ---------------------------------------------------------------- 8
+etape "8. Configuration finale de Squid"
 [ -f /etc/squid/conf.d/groupe4.conf ] && cp /etc/squid/conf.d/groupe4.conf "/etc/squid/groupe4.conf.$(date +%Y%m%d-%H%M%S).bak"
 cat > /etc/squid/conf.d/groupe4.conf <<'EOF'
 # Groupe 4 - proxy Squid de SRV-PROXY01
@@ -156,9 +252,19 @@ acl authentifie proxy_auth REQUIRED
 external_acl_type groupe_ad ttl=300 negative_ttl=60 %LOGIN /usr/lib/squid/ext_ldap_group_acl -R -K -S -b "dc=groupe4,dc=internal" -D svc-squid@groupe4.internal -W /etc/squid/ldap.pass -f "(&(objectClass=person)(sAMAccountName=%u)(memberOf=cn=%g,ou=Utilisateurs-G4,dc=groupe4,dc=internal))" -h srv-ad01.groupe4.internal
 acl gg_internet external groupe_ad GG-Internet
 
+# Categorie reseaux sociaux (YouTube, Facebook...) bloquee pour tout le monde
+acl reseaux_sociaux dstdomain "/etc/squid/reseaux-sociaux.txt"
+
+# Pages d'erreur personnalisees (logo Guardia)
+error_directory /etc/squid/errors-groupe4
+err_page_stylesheet /etc/squid/errors-groupe4.css
+deny_info ERR_RESEAUX_SOCIAUX reseaux_sociaux
+deny_info ERR_GG_INTERNET all
+
 # Regles d'acces, dans cet ordre
 http_access deny !reseau_interne
 http_access deny !authentifie
+http_access deny reseaux_sociaux
 http_access allow gg_internet
 http_access deny all
 EOF
@@ -433,6 +539,8 @@ t "Service squid actif" 'systemctl is-active squid'
 t "Squid ecoute sur 3128" 'ss -ltn | grep -q ":3128 "'
 t "Configuration sans ERROR ni FATAL" '! squid -k parse 2>&1 | grep -Eq "FATAL|ERROR"'
 t "groupe4.conf : ssl-bump, Kerberos, groupe AD, refus final" 'grep -q ssl-bump /etc/squid/conf.d/groupe4.conf && grep -q negotiate_kerberos_auth /etc/squid/conf.d/groupe4.conf && grep -q ext_ldap_group_acl /etc/squid/conf.d/groupe4.conf && grep -q "http_access deny all" /etc/squid/conf.d/groupe4.conf'
+t "Categorie reseaux sociaux bloquee (YouTube, Facebook)" 'grep -q "^http_access deny reseaux_sociaux" /etc/squid/conf.d/groupe4.conf && grep -qx ".youtube.com" /etc/squid/reseaux-sociaux.txt && grep -qx ".facebook.com" /etc/squid/reseaux-sociaux.txt' "Relancer l'option 2 de projet.ps1"
+t "Pages d'erreur personnalisees avec le logo Guardia" 'grep -q "data:image/jpeg;base64" /etc/squid/errors-groupe4/ERR_RESEAUX_SOCIAUX && grep -q "data:image/jpeg;base64" /etc/squid/errors-groupe4/ERR_GG_INTERNET && grep -q "data:image/jpeg;base64" /etc/squid/errors-groupe4/ERR_ACCESS_DENIED' "image.jpg sur le Bureau de SRV-AD01, puis option 2 de projet.ps1"
 titre "3. Inspection HTTPS"
 t "CA Groupe4 Proxy CA presente" 'openssl x509 -in /etc/squid/ssl/squid-ca.crt -noout -subject | grep -q "Groupe4 Proxy CA"'
 t "Certificat d'autorite (CA:TRUE)" 'openssl x509 -in /etc/squid/ssl/squid-ca.crt -noout -text | grep -q "CA:TRUE"'
@@ -451,6 +559,7 @@ LOGS="/var/log/squid/access.log /var/log/squid/access.log.1"   # journal du jour
 t "Journal : acces autorises de j.martin" 'grep -hqs "j.martin@GROUPE4.INTERNAL" $LOGS'
 t "Journal : refus 403 de p.durand" 'grep -hs "p.durand@GROUPE4.INTERNAL" $LOGS | grep -q "/403 "' "Naviguer en session p.durand sur PC-CLT01, puis relancer"
 t "Journal : pages HTTPS completes (GET https://)" 'grep -hqs " GET https://" $LOGS'
+t "Journal : reseau social refuse (YouTube ou Facebook)" 'grep -hs "TCP_DENIED" $LOGS | grep -Eq "youtube|facebook"' "Lancer la recette de PC-CLT01 (ou ouvrir youtube.com sur PC-CLT01), puis relancer"
 titre "5. Agent Wazuh"
 t "Service wazuh-agent actif" 'systemctl is-active wazuh-agent'
 t "Agent connecte au serveur" 'grep -q "status=.connected." /var/ossec/var/run/wazuh-agentd.state'
