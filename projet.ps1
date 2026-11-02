@@ -263,8 +263,9 @@ function Preparer-Logo {
     if (-not $transparent -and $lum -gt 240) { Write-Host "[!!] Image presque entierement blanche : le logo risque d'etre invisible (utilisez une version foncee ou sur fond colore)" -ForegroundColor Red }
     # Reduction (240 x 120 maximum), avec une marge si le fond est bleu nuit
     $m = if ($sombre) { 14 } else { 0 }
-    $f = [math]::Min(1, [math]::Min((240 - 2 * $m) / $img.Width, (120 - 2 * $m) / $img.Height))
-    $w = [int][math]::Max(1, $img.Width * $f); $h = [int][math]::Max(1, $img.Height * $f)
+    # Calculs en nombres decimaux : [math]::Min(1, 0.23) en entiers donnerait 0 (image de 1 x 1 px)
+    $f = [math]::Min([double]1, [math]::Min([double](240 - 2 * $m) / $img.Width, [double](120 - 2 * $m) / $img.Height))
+    $w = [int][math]::Max([double]1, [double]$img.Width * $f); $h = [int][math]::Max([double]1, [double]$img.Height * $f)
     $bmp = New-Object Drawing.Bitmap ($w + 2 * $m), ($h + 2 * $m)
     $g = [Drawing.Graphics]::FromImage($bmp)
     $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
