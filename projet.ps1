@@ -223,59 +223,57 @@ Write-Host "`nTermine. Redemarrez PC-CLT01, ouvrez une session GROUPE4\j.martin 
 }
 
 function Preparer-Logo {
-    # Cherche image.png (ou image.jpg) sur un Bureau de SRV-AD01 et la reduit (240 x 120 maximum, PNG transparent) pour les pages d'erreur de Squid
+    # Cherche image.png (ou image.jpg) sur un Bureau de SRV-AD01, la recadre sur le logo (partie qui se detache du fond),
+    # la reduit (640 x 220 maximum, affichee en 110 px de haut : nette sur tous les ecrans) et note la couleur du fond.
+    # Renvoie deux fichiers : logo-guardia.png et logo-fond.txt (couleur du bandeau des pages d'erreur).
     $bureaux = @([Environment]::GetFolderPath("Desktop"), "$env:PUBLIC\Desktop") + (Get-ChildItem C:\Users -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName "Desktop" })
     $src = $bureaux | Where-Object { Test-Path $_ } | ForEach-Object { Get-ChildItem $_ -File -ErrorAction SilentlyContinue } |
         Where-Object { $_.BaseName -like "image*" -and $_.Extension -match '^\.(png|jpe?g)$' } | Sort-Object { $_.Extension -ne ".png" } | Select-Object -First 1
     if (-not $src) { Write-Host "[!!] image.png introuvable sur le Bureau : pages d'erreur sans logo" -ForegroundColor Red; return $null }
     Add-Type -AssemblyName System.Drawing
-    $img = [Drawing.Image]::FromFile($src.FullName)
-    # Analyse du logo : un logo clair sur fond transparent (logo blanc) serait invisible sur la page blanche
-    $ech = New-Object Drawing.Bitmap $img
-    $pas = [math]::Max(1, [int][math]::Sqrt($ech.Width * $ech.Height / 4000))
-    $tot = 0; $opa = 0; $som = 0.0
-    for ($y = 0; $y -lt $ech.Height; $y += $pas) { for ($x = 0; $x -lt $ech.Width; $x += $pas) {
-        $c = $ech.GetPixel($x, $y); $tot++
-        if ($c.A -gt 128) { $opa++; $som += 0.299 * $c.R + 0.587 * $c.G + 0.114 * $c.B } } }
-    # Recadrage : on retire les marges unies autour du logo (couleur du coin haut gauche)
-    $ref = $ech.GetPixel(0, 0); $x1 = $ech.Width; $y1 = $ech.Height; $x2 = -1; $y2 = -1
-    for ($y = 0; $y -lt $ech.Height; $y += $pas) { for ($x = 0; $x -lt $ech.Width; $x += $pas) {
-        $c = $ech.GetPixel($x, $y)
-        $d = [math]::Abs($c.A - $ref.A) + [math]::Abs($c.R - $ref.R) + [math]::Abs($c.G - $ref.G) + [math]::Abs($c.B - $ref.B)
-        if ($d -gt 60) { if ($x -lt $x1) { $x1 = $x }; if ($y -lt $y1) { $y1 = $y }; if ($x -gt $x2) { $x2 = $x }; if ($y -gt $y2) { $y2 = $y } } } }
-    $ech.Dispose()
-    if ($x2 -ge 0) {
-        $x1 = [math]::Max(0, $x1 - $pas); $y1 = [math]::Max(0, $y1 - $pas)
-        $cw = [math]::Min($img.Width, $x2 + 2 * $pas) - $x1; $ch = [math]::Min($img.Height, $y2 + 2 * $pas) - $y1
-        if ($cw * $ch -lt $img.Width * $img.Height * 0.9) {
-            $rog = New-Object Drawing.Bitmap $cw, $ch
-            $gr = [Drawing.Graphics]::FromImage($rog)
-            $gr.DrawImage($img, (New-Object Drawing.Rectangle 0, 0, $cw, $ch), (New-Object Drawing.Rectangle $x1, $y1, $cw, $ch), [Drawing.GraphicsUnit]::Pixel)
-            $gr.Dispose()
-            Write-Host ("[..] Marges retirees : {0} x {1} px -> {2} x {3} px" -f $img.Width, $img.Height, $cw, $ch) -ForegroundColor Yellow
-            $img.Dispose(); $img = $rog
-        }
-    } else { Write-Host "[!!] Image unie : aucun logo detecte (verifiez le fichier image.png)" -ForegroundColor Red }
-    $lum = if ($opa) { $som / $opa } else { 255 }
-    $transparent = $opa -lt $tot * 0.95
-    $sombre = $transparent -and $lum -gt 170
-    Write-Host ("[..] {0} : {1} x {2} px, transparence {3}, luminosite {4:N0}/255 -> fond {5}" -f $src.Name, $img.Width, $img.Height, $(if ($transparent) { "oui" } else { "non" }), $lum, $(if ($sombre) { "bleu nuit" } else { "blanc" })) -ForegroundColor Yellow
-    if (-not $transparent -and $lum -gt 240) { Write-Host "[!!] Image presque entierement blanche : le logo risque d'etre invisible (utilisez une version foncee ou sur fond colore)" -ForegroundColor Red }
-    # Reduction (240 x 120 maximum), avec une marge si le fond est bleu nuit
-    $m = if ($sombre) { 14 } else { 0 }
-    # Calculs en nombres decimaux : [math]::Min(1, 0.23) en entiers donnerait 0 (image de 1 x 1 px)
-    $f = [math]::Min([double]1, [math]::Min([double](240 - 2 * $m) / $img.Width, [double](120 - 2 * $m) / $img.Height))
-    $w = [int][math]::Max([double]1, [double]$img.Width * $f); $h = [int][math]::Max([double]1, [double]$img.Height * $f)
-    $bmp = New-Object Drawing.Bitmap ($w + 2 * $m), ($h + 2 * $m)
-    $g = [Drawing.Graphics]::FromImage($bmp)
-    $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    # Transparence conservee ; fond bleu nuit seulement pour un logo clair
-    if ($sombre) { $g.Clear([Drawing.Color]::FromArgb(15, 27, 45)) } else { $g.Clear([Drawing.Color]::Transparent) }
-    $g.DrawImage($img, $m, $m, $w, $h); $g.Dispose(); $img.Dispose()
-    $out = Join-Path $env:TEMP "logo-guardia.png"
-    $bmp.Save($out, [Drawing.Imaging.ImageFormat]::Png); $lw = $bmp.Width; $lh = $bmp.Height; $bmp.Dispose()
-    Write-Host ("[OK] Logo prepare depuis {0} : {1} x {2} px, {3} octets" -f $src.FullName, $lw, $lh, (Get-Item $out).Length) -ForegroundColor Green
-    return $out
+    $img0 = [Drawing.Image]::FromFile($src.FullName)
+    $bm = New-Object Drawing.Bitmap $img0; $img0.Dispose()
+    [int]$largeur = $bm.Width; [int]$hauteur = $bm.Height
+    [int]$pas = [math]::Max(1, [int][math]::Floor([math]::Sqrt([double]$largeur * $hauteur / 20000)))
+    # 1. Couleur du fond = moyenne des pixels du bord
+    [double]$moyR = 0; [double]$moyG = 0; [double]$moyB = 0; [double]$moyA = 0; [int]$nb = 0
+    for ($x = 0; $x -lt $largeur; $x += $pas) { foreach ($y in @(0, ($hauteur - 1))) { $c = $bm.GetPixel($x, $y); $moyR += $c.R; $moyG += $c.G; $moyB += $c.B; $moyA += $c.A; $nb++ } }
+    for ($y = 0; $y -lt $hauteur; $y += $pas) { foreach ($x in @(0, ($largeur - 1))) { $c = $bm.GetPixel($x, $y); $moyR += $c.R; $moyG += $c.G; $moyB += $c.B; $moyA += $c.A; $nb++ } }
+    $moyR /= $nb; $moyG /= $nb; $moyB /= $nb; $moyA /= $nb
+    $transparent = $moyA -lt 128
+    [double]$lf = 0.299 * $moyR + 0.587 * $moyG + 0.114 * $moyB
+    # 2. Zone du logo : pixels nettement differents du fond (ou opaques si le fond est transparent)
+    [int]$x1 = $largeur; [int]$y1 = $hauteur; [int]$x2 = -1; [int]$y2 = -1; [double]$som = 0; [int]$n = 0
+    for ($y = 0; $y -lt $hauteur; $y += $pas) { for ($x = 0; $x -lt $largeur; $x += $pas) {
+        $c = $bm.GetPixel($x, $y); [double]$l = 0.299 * $c.R + 0.587 * $c.G + 0.114 * $c.B
+        $dedans = if ($transparent) { $c.A -gt 128 } else { [math]::Abs($l - $lf) -gt 70 }
+        if ($dedans) { if ($x -lt $x1) { $x1 = $x }; if ($y -lt $y1) { $y1 = $y }; if ($x -gt $x2) { $x2 = $x }; if ($y -gt $y2) { $y2 = $y }; $som += $l; $n++ } } }
+    if ($x2 -lt 0) { $x1 = 0; $y1 = 0; $x2 = $largeur - 1; $y2 = $hauteur - 1 }
+    # 3. Marges autour du logo (larges sur les cotes pour le fondu des bords), puis decoupe
+    [int]$mx = [int]([double]($x2 - $x1 + 1) * 0.45) + $pas; [int]$my = [int]([double]($y2 - $y1 + 1) * 0.15) + $pas
+    $x1 = [math]::Max(0, $x1 - $mx); $y1 = [math]::Max(0, $y1 - $my); $x2 = [math]::Min($largeur - 1, $x2 + $mx); $y2 = [math]::Min($hauteur - 1, $y2 + $my)
+    [int]$cw = $x2 - $x1 + 1; [int]$ch = $y2 - $y1 + 1
+    # 4. Reduction en nombres decimaux (640 x 220 maximum)
+    [double]$f = [math]::Min([double]1, [math]::Min([double]640 / $cw, [double]220 / $ch))
+    [int]$lw = [math]::Max([double]1, [math]::Round([double]$cw * $f)); [int]$lh = [math]::Max([double]1, [math]::Round([double]$ch * $f))
+    $out = New-Object Drawing.Bitmap $lw, $lh
+    $gfx = [Drawing.Graphics]::FromImage($out)
+    $gfx.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $gfx.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+    $gfx.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::HighQuality
+    $gfx.Clear([Drawing.Color]::Transparent)
+    $gfx.DrawImage($bm, (New-Object Drawing.Rectangle 0, 0, $lw, $lh), (New-Object Drawing.Rectangle $x1, $y1, $cw, $ch), [Drawing.GraphicsUnit]::Pixel)
+    $gfx.Dispose(); $bm.Dispose()
+    $png = Join-Path $env:TEMP "logo-guardia.png"
+    $out.Save($png, [Drawing.Imaging.ImageFormat]::Png); $out.Dispose()
+    # 5. Couleur du bandeau : celle du fond du logo (bleu nuit pour un logo clair sur fond transparent, blanc sinon)
+    if ($transparent) { $fond = if ($n -and ($som / $n) -gt 170) { "#0f1b2d" } else { "#ffffff" } }
+    else { $fond = "#{0:x2}{1:x2}{2:x2}" -f [int]$moyR, [int]$moyG, [int]$moyB }
+    $txt = Join-Path $env:TEMP "logo-fond.txt"
+    [IO.File]::WriteAllText($txt, $fond)
+    Write-Host ("[..] {0} : {1} x {2} px, logo recadre sur {3} x {4} px, bandeau {5}" -f $src.Name, $largeur, $hauteur, $cw, $ch, $fond) -ForegroundColor Yellow
+    Write-Host ("[OK] Logo prepare : {0} x {1} px, {2} octets" -f $lw, $lh, (Get-Item $png).Length) -ForegroundColor Green
+    return @($png, $txt)
 }
 
 function Config-Linux {
@@ -287,7 +285,7 @@ function Config-Linux {
             $logo = Preparer-Logo
             if ($logo) {
                 Write-Host "Envoi du logo au proxy (mot de passe SSH de adminproxy)" -ForegroundColor Cyan
-                scp -o StrictHostKeyChecking=accept-new $logo "$($m.Cible):/tmp/logo-guardia.png"
+                scp -o StrictHostKeyChecking=accept-new $logo[0] $logo[1] "$($m.Cible):/tmp/"
                 if ($LASTEXITCODE -ne 0) { Write-Host "[!!] Envoi du logo echoue : pages d'erreur sans logo" -ForegroundColor Red }
             }
         }

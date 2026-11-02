@@ -130,10 +130,15 @@ echo "j.martin -> $R1 (attendu OK) ; p.durand -> $R2 (attendu ERR)"
 
 # ---------------------------------------------------------------- 7
 etape "7. Pages d'erreur personnalisees (logo Guardia) et categorie reseaux sociaux"
-# Logo : envoye par projet.ps1 (option 2) depuis le Bureau de SRV-AD01, deja reduit
+# Logo : envoye par projet.ps1 (option 2) depuis le Bureau de SRV-AD01, deja recadre et reduit,
+# avec la couleur de son fond (logo-fond.txt) qui sert de bandeau en haut des pages
 if [ -f /tmp/logo-guardia.png ]; then install -m 644 /tmp/logo-guardia.png /etc/squid/logo-guardia.png; rm -f /tmp/logo-guardia.png /etc/squid/logo-guardia.jpg; fi
+if [ -f /tmp/logo-fond.txt ]; then install -m 644 /tmp/logo-fond.txt /etc/squid/logo-fond.txt; rm -f /tmp/logo-fond.txt; fi
 LOGO="<b>Guardia Cybersecurity School</b>"
+FOND="#0f1b2d"
 if [ -f /etc/squid/logo-guardia.png ]; then
+  FOND=$(tr -dc '#0-9a-fA-F' < /etc/squid/logo-fond.txt 2>/dev/null | head -c 7 || true)
+  [[ "$FOND" =~ ^#[0-9a-fA-F]{6}$ ]] || FOND="#ffffff"
   B64=$(base64 -w0 /etc/squid/logo-guardia.png)
   if [ ${#B64} -lt 300000 ]; then
     LOGO="<img src=\"data:image/png;base64,$B64\" alt=\"Guardia Cybersecurity School\">"
@@ -184,12 +189,15 @@ cat > "$D/ERR_RESEAUX_SOCIAUX" <<EOF
 <div id="footer">Proxy SRV-PROXY01 · Groupe 4 · Guardia Cybersecurity School</div>
 </body></html>
 EOF
-cat > /etc/squid/errors-groupe4.css <<'EOF'
+cat > /etc/squid/errors-groupe4.css <<EOF
 html { background: #eef1f5; }
 body { font-family: "Segoe UI", Arial, sans-serif; color: #0f1b2d; max-width: 720px; margin: 40px auto; background: #ffffff;
-       border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.12); padding: 32px 40px; }
-#guardia { text-align: center; margin-bottom: 18px; }
-#guardia img { max-width: 240px; max-height: 120px; border-radius: 8px; }
+       border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.12); padding: 0 40px 28px; overflow: hidden; }
+#guardia { background: $FOND; margin: 0 -40px 26px; padding: 18px 40px; text-align: center; }
+#guardia img { display: block; margin: 0 auto; max-width: 100%; max-height: 110px;
+               -webkit-mask-image: radial-gradient(ellipse closest-side, #000 78%, transparent 100%);
+               mask-image: radial-gradient(ellipse closest-side, #000 78%, transparent 100%); }
+#guardia b { color: #ffffff; font-size: 20px; }
 #titles h1 { color: #c93c3c; font-size: 26px; margin: 0; }
 #titles h2 { color: #24364f; font-size: 17px; font-weight: normal; margin: 6px 0 0; }
 hr { border: 0; border-top: 1px solid #dde3ea; }
