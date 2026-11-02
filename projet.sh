@@ -188,7 +188,7 @@ html { background: #eef1f5; }
 body { font-family: "Segoe UI", Arial, sans-serif; color: #0f1b2d; max-width: 720px; margin: 40px auto; background: #ffffff;
        border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.12); padding: 32px 40px; }
 #guardia { text-align: center; margin-bottom: 18px; }
-#guardia img { max-width: 240px; max-height: 120px; }
+#guardia img { max-width: 240px; max-height: 120px; border-radius: 8px; }
 #titles h1 { color: #c93c3c; font-size: 26px; margin: 0; }
 #titles h2 { color: #24364f; font-size: 17px; font-weight: normal; margin: 6px 0 0; }
 hr { border: 0; border-top: 1px solid #dde3ea; }

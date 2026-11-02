@@ -230,18 +230,34 @@ function Preparer-Logo {
     if (-not $src) { Write-Host "[!!] image.jpg introuvable sur le Bureau : pages d'erreur sans logo" -ForegroundColor Red; return $null }
     Add-Type -AssemblyName System.Drawing
     $img = [Drawing.Image]::FromFile($src.FullName)
-    $f = [math]::Min(1, [math]::Min(240 / $img.Width, 120 / $img.Height))
+    # Analyse du logo : un logo clair sur fond transparent (logo blanc) serait invisible sur la page blanche
+    $ech = New-Object Drawing.Bitmap $img
+    $pas = [math]::Max(1, [int][math]::Sqrt($ech.Width * $ech.Height / 4000))
+    $tot = 0; $opa = 0; $som = 0.0
+    for ($y = 0; $y -lt $ech.Height; $y += $pas) { for ($x = 0; $x -lt $ech.Width; $x += $pas) {
+        $c = $ech.GetPixel($x, $y); $tot++
+        if ($c.A -gt 128) { $opa++; $som += 0.299 * $c.R + 0.587 * $c.G + 0.114 * $c.B } } }
+    $ech.Dispose()
+    $lum = if ($opa) { $som / $opa } else { 255 }
+    $transparent = $opa -lt $tot * 0.95
+    $sombre = $transparent -and $lum -gt 170
+    Write-Host ("[..] {0} : {1} x {2} px, transparence {3}, luminosite {4:N0}/255 -> fond {5}" -f $src.Name, $img.Width, $img.Height, $(if ($transparent) { "oui" } else { "non" }), $lum, $(if ($sombre) { "bleu nuit" } else { "blanc" })) -ForegroundColor Yellow
+    if (-not $transparent -and $lum -gt 240) { Write-Host "[!!] Image presque entierement blanche : le logo risque d'etre invisible (utilisez une version foncee ou sur fond colore)" -ForegroundColor Red }
+    # Reduction (240 x 120 maximum), avec une marge si le fond est bleu nuit
+    $m = if ($sombre) { 14 } else { 0 }
+    $f = [math]::Min(1, [math]::Min((240 - 2 * $m) / $img.Width, (120 - 2 * $m) / $img.Height))
     $w = [int][math]::Max(1, $img.Width * $f); $h = [int][math]::Max(1, $img.Height * $f)
-    $bmp = New-Object Drawing.Bitmap $w, $h
+    $bmp = New-Object Drawing.Bitmap ($w + 2 * $m), ($h + 2 * $m)
     $g = [Drawing.Graphics]::FromImage($bmp)
     $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $g.Clear([Drawing.Color]::White); $g.DrawImage($img, 0, 0, $w, $h); $g.Dispose(); $img.Dispose()
+    if ($sombre) { $g.Clear([Drawing.Color]::FromArgb(15, 27, 45)) } else { $g.Clear([Drawing.Color]::White) }
+    $g.DrawImage($img, $m, $m, $w, $h); $g.Dispose(); $img.Dispose()
     $codec = [Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object MimeType -eq "image/jpeg"
     $ep = New-Object Drawing.Imaging.EncoderParameters 1
     $ep.Param[0] = New-Object Drawing.Imaging.EncoderParameter ([Drawing.Imaging.Encoder]::Quality), 85L
     $out = Join-Path $env:TEMP "logo-guardia.jpg"
-    $bmp.Save($out, $codec, $ep); $bmp.Dispose()
-    Write-Host ("[OK] Logo prepare depuis {0} : {1} x {2} px, {3} octets" -f $src.FullName, $w, $h, (Get-Item $out).Length) -ForegroundColor Green
+    $bmp.Save($out, $codec, $ep); $lw = $bmp.Width; $lh = $bmp.Height; $bmp.Dispose()
+    Write-Host ("[OK] Logo prepare depuis {0} : {1} x {2} px, {3} octets" -f $src.FullName, $lw, $lh, (Get-Item $out).Length) -ForegroundColor Green
     return $out
 }
 
