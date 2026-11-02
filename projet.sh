@@ -131,18 +131,18 @@ echo "j.martin -> $R1 (attendu OK) ; p.durand -> $R2 (attendu ERR)"
 # ---------------------------------------------------------------- 7
 etape "7. Pages d'erreur personnalisees (logo Guardia) et categorie reseaux sociaux"
 # Logo : envoye par projet.ps1 (option 2) depuis le Bureau de SRV-AD01, deja reduit
-if [ -f /tmp/logo-guardia.jpg ]; then install -m 644 /tmp/logo-guardia.jpg /etc/squid/logo-guardia.jpg; rm -f /tmp/logo-guardia.jpg; fi
+if [ -f /tmp/logo-guardia.png ]; then install -m 644 /tmp/logo-guardia.png /etc/squid/logo-guardia.png; rm -f /tmp/logo-guardia.png /etc/squid/logo-guardia.jpg; fi
 LOGO="<b>Guardia Cybersecurity School</b>"
-if [ -f /etc/squid/logo-guardia.jpg ]; then
-  B64=$(base64 -w0 /etc/squid/logo-guardia.jpg)
-  if [ ${#B64} -lt 45000 ]; then
-    LOGO="<img src=\"data:image/jpeg;base64,$B64\" alt=\"Guardia Cybersecurity School\">"
-    ok "Logo integre dans les pages ($(stat -c %s /etc/squid/logo-guardia.jpg) octets)"
+if [ -f /etc/squid/logo-guardia.png ]; then
+  B64=$(base64 -w0 /etc/squid/logo-guardia.png)
+  if [ ${#B64} -lt 300000 ]; then
+    LOGO="<img src=\"data:image/png;base64,$B64\" alt=\"Guardia Cybersecurity School\">"
+    ok "Logo integre dans les pages ($(stat -c %s /etc/squid/logo-guardia.png) octets)"
   else
     alerte "Logo trop lourd (${#B64} caracteres) : texte utilise a la place"
   fi
 else
-  alerte "Logo absent : placez image.jpg sur le Bureau de SRV-AD01 et relancez l'option 2 (texte utilise en attendant)"
+  alerte "Logo absent : placez image.png sur le Bureau de SRV-AD01 et relancez l'option 2 (texte utilise en attendant)"
 fi
 SRC=""
 for d in /usr/share/squid/errors/fr /usr/share/squid-langpack/fr /usr/share/squid/errors/templates /usr/share/squid-langpack/templates; do
@@ -152,7 +152,8 @@ done
 D=/etc/squid/errors-groupe4
 rm -rf "$D"; mkdir -p "$D"; cp -L "$SRC"/* "$D"/
 # Logo en tete de toutes les pages d'erreur de Squid
-for f in "$D"/ERR_*; do sed -i "s|<body[^>]*>|&<div id=\"guardia\">$LOGO</div>|" "$f"; done
+printf '%s' "$LOGO" > /etc/squid/logo-guardia.html   # lu depuis un fichier : pas de limite de longueur
+perl -pi -e 'BEGIN { open(my $fh, "<", "/etc/squid/logo-guardia.html") or die; local $/; $L = <$fh> } s|(<body[^>]*>)|$1<div id="guardia">$L</div>|' "$D"/ERR_*
 # Page du groupe AD (p.durand) et page de la categorie reseaux sociaux
 cat > "$D/ERR_GG_INTERNET" <<EOF
 <!DOCTYPE html>
@@ -540,7 +541,7 @@ t "Squid ecoute sur 3128" 'ss -ltn | grep -q ":3128 "'
 t "Configuration sans ERROR ni FATAL" '! squid -k parse 2>&1 | grep -Eq "FATAL|ERROR"'
 t "groupe4.conf : ssl-bump, Kerberos, groupe AD, refus final" 'grep -q ssl-bump /etc/squid/conf.d/groupe4.conf && grep -q negotiate_kerberos_auth /etc/squid/conf.d/groupe4.conf && grep -q ext_ldap_group_acl /etc/squid/conf.d/groupe4.conf && grep -q "http_access deny all" /etc/squid/conf.d/groupe4.conf'
 t "Categorie reseaux sociaux bloquee (YouTube, Facebook)" 'grep -q "^http_access deny reseaux_sociaux" /etc/squid/conf.d/groupe4.conf && grep -qx ".youtube.com" /etc/squid/reseaux-sociaux.txt && grep -qx ".facebook.com" /etc/squid/reseaux-sociaux.txt' "Relancer l'option 2 de projet.ps1"
-t "Pages d'erreur personnalisees avec le logo Guardia" 'grep -q "data:image/jpeg;base64" /etc/squid/errors-groupe4/ERR_RESEAUX_SOCIAUX && grep -q "data:image/jpeg;base64" /etc/squid/errors-groupe4/ERR_GG_INTERNET && grep -q "data:image/jpeg;base64" /etc/squid/errors-groupe4/ERR_ACCESS_DENIED' "image.jpg sur le Bureau de SRV-AD01, puis option 2 de projet.ps1"
+t "Pages d'erreur personnalisees avec le logo Guardia" 'grep -q "data:image/png;base64" /etc/squid/errors-groupe4/ERR_RESEAUX_SOCIAUX && grep -q "data:image/png;base64" /etc/squid/errors-groupe4/ERR_GG_INTERNET && grep -q "data:image/png;base64" /etc/squid/errors-groupe4/ERR_ACCESS_DENIED' "image.png sur le Bureau de SRV-AD01, puis option 2 de projet.ps1"
 titre "3. Inspection HTTPS"
 t "CA Groupe4 Proxy CA presente" 'openssl x509 -in /etc/squid/ssl/squid-ca.crt -noout -subject | grep -q "Groupe4 Proxy CA"'
 t "Certificat d'autorite (CA:TRUE)" 'openssl x509 -in /etc/squid/ssl/squid-ca.crt -noout -text | grep -q "CA:TRUE"'

@@ -223,11 +223,11 @@ Write-Host "`nTermine. Redemarrez PC-CLT01, ouvrez une session GROUPE4\j.martin 
 }
 
 function Preparer-Logo {
-    # Cherche image.jpg (ou image.png) sur un Bureau de SRV-AD01 et la reduit (240 x 120 maximum, JPEG) pour les pages d'erreur de Squid
+    # Cherche image.png (ou image.jpg) sur un Bureau de SRV-AD01 et la reduit (240 x 120 maximum, PNG transparent) pour les pages d'erreur de Squid
     $bureaux = @([Environment]::GetFolderPath("Desktop"), "$env:PUBLIC\Desktop") + (Get-ChildItem C:\Users -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName "Desktop" })
     $src = $bureaux | Where-Object { Test-Path $_ } | ForEach-Object { Get-ChildItem $_ -File -ErrorAction SilentlyContinue } |
-        Where-Object { $_.BaseName -like "image*" -and $_.Extension -match '^\.(jpe?g|png)$' } | Select-Object -First 1
-    if (-not $src) { Write-Host "[!!] image.jpg introuvable sur le Bureau : pages d'erreur sans logo" -ForegroundColor Red; return $null }
+        Where-Object { $_.BaseName -like "image*" -and $_.Extension -match '^\.(png|jpe?g)$' } | Sort-Object { $_.Extension -ne ".png" } | Select-Object -First 1
+    if (-not $src) { Write-Host "[!!] image.png introuvable sur le Bureau : pages d'erreur sans logo" -ForegroundColor Red; return $null }
     Add-Type -AssemblyName System.Drawing
     $img = [Drawing.Image]::FromFile($src.FullName)
     # Analyse du logo : un logo clair sur fond transparent (logo blanc) serait invisible sur la page blanche
@@ -255,7 +255,7 @@ function Preparer-Logo {
             Write-Host ("[..] Marges retirees : {0} x {1} px -> {2} x {3} px" -f $img.Width, $img.Height, $cw, $ch) -ForegroundColor Yellow
             $img.Dispose(); $img = $rog
         }
-    } else { Write-Host "[!!] Image unie : aucun logo detecte (verifiez le fichier image.jpg)" -ForegroundColor Red }
+    } else { Write-Host "[!!] Image unie : aucun logo detecte (verifiez le fichier image.png)" -ForegroundColor Red }
     $lum = if ($opa) { $som / $opa } else { 255 }
     $transparent = $opa -lt $tot * 0.95
     $sombre = $transparent -and $lum -gt 170
@@ -268,13 +268,11 @@ function Preparer-Logo {
     $bmp = New-Object Drawing.Bitmap ($w + 2 * $m), ($h + 2 * $m)
     $g = [Drawing.Graphics]::FromImage($bmp)
     $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    if ($sombre) { $g.Clear([Drawing.Color]::FromArgb(15, 27, 45)) } else { $g.Clear([Drawing.Color]::White) }
+    # Transparence conservee ; fond bleu nuit seulement pour un logo clair
+    if ($sombre) { $g.Clear([Drawing.Color]::FromArgb(15, 27, 45)) } else { $g.Clear([Drawing.Color]::Transparent) }
     $g.DrawImage($img, $m, $m, $w, $h); $g.Dispose(); $img.Dispose()
-    $codec = [Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object MimeType -eq "image/jpeg"
-    $ep = New-Object Drawing.Imaging.EncoderParameters 1
-    $ep.Param[0] = New-Object Drawing.Imaging.EncoderParameter ([Drawing.Imaging.Encoder]::Quality), 85L
-    $out = Join-Path $env:TEMP "logo-guardia.jpg"
-    $bmp.Save($out, $codec, $ep); $lw = $bmp.Width; $lh = $bmp.Height; $bmp.Dispose()
+    $out = Join-Path $env:TEMP "logo-guardia.png"
+    $bmp.Save($out, [Drawing.Imaging.ImageFormat]::Png); $lw = $bmp.Width; $lh = $bmp.Height; $bmp.Dispose()
     Write-Host ("[OK] Logo prepare depuis {0} : {1} x {2} px, {3} octets" -f $src.FullName, $lw, $lh, (Get-Item $out).Length) -ForegroundColor Green
     return $out
 }
@@ -288,7 +286,7 @@ function Config-Linux {
             $logo = Preparer-Logo
             if ($logo) {
                 Write-Host "Envoi du logo au proxy (mot de passe SSH de adminproxy)" -ForegroundColor Cyan
-                scp -o StrictHostKeyChecking=accept-new $logo "$($m.Cible):/tmp/logo-guardia.jpg"
+                scp -o StrictHostKeyChecking=accept-new $logo "$($m.Cible):/tmp/logo-guardia.png"
                 if ($LASTEXITCODE -ne 0) { Write-Host "[!!] Envoi du logo echoue : pages d'erreur sans logo" -ForegroundColor Red }
             }
         }
@@ -813,7 +811,7 @@ $fb = Via-Proxy "https://www.facebook.com/"
 Info "YouTube : HTTP $($yt.Code) ; Facebook : HTTP $($fb.Code)"
 Test-Point "YouTube bloque par le proxy (HTTP 403)" { $yt.Code -eq 403 } "Relancer l'option 2 de projet.ps1 sur SRV-AD01"
 Test-Point "Facebook bloque par le proxy (HTTP 403)" { $fb.Code -eq 403 }
-Test-Point "Page de blocage personnalisee (reseaux sociaux, logo Guardia)" { $yt.Corps -match "seaux sociaux" -and $yt.Corps -match "data:image/jpeg;base64" } "image.jpg sur le Bureau de SRV-AD01, puis option 2"
+Test-Point "Page de blocage personnalisee (reseaux sociaux, logo Guardia)" { $yt.Corps -match "seaux sociaux" -and $yt.Corps -match "data:image/png;base64" } "image.png sur le Bureau de SRV-AD01, puis option 2"
 
 Titre "6. Agent Wazuh"
 Test-Point "Service WazuhSvc demarre" { (Get-Service WazuhSvc).Status -eq "Running" }

@@ -9,7 +9,7 @@ Deux scripts seulement :
 
 Chaque partie peut être relancée sans risque : ce qui est déjà fait est sauté. Aucun mot de passe n'est écrit dans le dépôt, ils sont demandés à l'exécution. La recette ne modifie aucune configuration.
 
-Prérequis : étapes 1 à 7 du guide faites (VM installées, AD promu, PC-CLT01 dans le domaine, Squid et Wazuh installés), et le logo `image.jpg` posé sur le Bureau de SRV-AD01 avant l'option 2.
+Prérequis : étapes 1 à 7 du guide faites (VM installées, AD promu, PC-CLT01 dans le domaine, Squid et Wazuh installés), et le logo `image.png` posé sur le Bureau de SRV-AD01 avant l'option 2.
 
 Astuce : ouvrez cette page dans Edge sur SRV-AD01 ou PC-CLT01, copiez la commande avec le bouton de copie et collez-la dans PowerShell avec un clic droit.
 
@@ -88,5 +88,5 @@ type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh adminproxy@192.168.10.20 "mkdir 
 - Le mot de passe de svc-squid est stocké sur le proxy dans `/etc/squid/ldap.pass` (lisible par root et Squid seulement). Pour le changer : supprimez ce fichier et relancez l'option 2.
 - Webmin est installé depuis le paquet officiel publié sur GitHub (le dépôt download.webmin.com est refusé depuis le réseau de l'école). Il n'est accessible que depuis SRV-AD01. Les règles du projet restent dans `/etc/squid/conf.d/groupe4.conf` : ne pas les recréer dans les écrans Access Control de Webmin.
 - Réseaux sociaux : la liste des domaines bloqués est dans `/etc/squid/reseaux-sociaux.txt` sur le proxy (YouTube, Facebook, Instagram, TikTok, X, Snapchat). Pour en ajouter un : une ligne `.domaine.com`, puis `sudo squid -k reconfigure`. Ce blocage s'applique à tout le monde, avant la vérification du groupe GG-Internet.
-- Pages d'erreur : modèles dans `/etc/squid/errors-groupe4` (page « Site bloqué » pour les réseaux sociaux, page « Accès à Internet refusé » pour les comptes hors GG-Internet, logo en tête de toutes les autres). Pour changer de logo : remplacer `image.jpg` sur le Bureau de SRV-AD01 et relancer l'option 2.
+- Pages d'erreur : modèles dans `/etc/squid/errors-groupe4` (page « Site bloqué » pour les réseaux sociaux, page « Accès à Internet refusé » pour les comptes hors GG-Internet, logo en tête de toutes les autres). Pour changer de logo : remplacer `image.png` sur le Bureau de SRV-AD01 et relancer l'option 2.
 - Après une modification d'un fichier sur GitHub, attendez environ 5 minutes avant de relancer : raw.githubusercontent.com garde l'ancienne version en cache.
