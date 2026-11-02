@@ -237,7 +237,25 @@ function Preparer-Logo {
     for ($y = 0; $y -lt $ech.Height; $y += $pas) { for ($x = 0; $x -lt $ech.Width; $x += $pas) {
         $c = $ech.GetPixel($x, $y); $tot++
         if ($c.A -gt 128) { $opa++; $som += 0.299 * $c.R + 0.587 * $c.G + 0.114 * $c.B } } }
+    # Recadrage : on retire les marges unies autour du logo (couleur du coin haut gauche)
+    $ref = $ech.GetPixel(0, 0); $x1 = $ech.Width; $y1 = $ech.Height; $x2 = -1; $y2 = -1
+    for ($y = 0; $y -lt $ech.Height; $y += $pas) { for ($x = 0; $x -lt $ech.Width; $x += $pas) {
+        $c = $ech.GetPixel($x, $y)
+        $d = [math]::Abs($c.A - $ref.A) + [math]::Abs($c.R - $ref.R) + [math]::Abs($c.G - $ref.G) + [math]::Abs($c.B - $ref.B)
+        if ($d -gt 60) { if ($x -lt $x1) { $x1 = $x }; if ($y -lt $y1) { $y1 = $y }; if ($x -gt $x2) { $x2 = $x }; if ($y -gt $y2) { $y2 = $y } } } }
     $ech.Dispose()
+    if ($x2 -ge 0) {
+        $x1 = [math]::Max(0, $x1 - $pas); $y1 = [math]::Max(0, $y1 - $pas)
+        $cw = [math]::Min($img.Width, $x2 + 2 * $pas) - $x1; $ch = [math]::Min($img.Height, $y2 + 2 * $pas) - $y1
+        if ($cw * $ch -lt $img.Width * $img.Height * 0.9) {
+            $rog = New-Object Drawing.Bitmap $cw, $ch
+            $gr = [Drawing.Graphics]::FromImage($rog)
+            $gr.DrawImage($img, (New-Object Drawing.Rectangle 0, 0, $cw, $ch), (New-Object Drawing.Rectangle $x1, $y1, $cw, $ch), [Drawing.GraphicsUnit]::Pixel)
+            $gr.Dispose()
+            Write-Host ("[..] Marges retirees : {0} x {1} px -> {2} x {3} px" -f $img.Width, $img.Height, $cw, $ch) -ForegroundColor Yellow
+            $img.Dispose(); $img = $rog
+        }
+    } else { Write-Host "[!!] Image unie : aucun logo detecte (verifiez le fichier image.jpg)" -ForegroundColor Red }
     $lum = if ($opa) { $som / $opa } else { 255 }
     $transparent = $opa -lt $tot * 0.95
     $sombre = $transparent -and $lum -gt 170
