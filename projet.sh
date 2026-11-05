@@ -4,9 +4,93 @@
 #   sudo bash projet.sh          configuration de la machine (relancable sans risque)
 #   sudo bash projet.sh test     recette (lecture seule)
 #   sudo bash projet.sh scan     demonstration IDS : scans nmap (SRV-PROXY01)
+#   sudo bash projet.sh auth identifiants|sso   authentification du proxy (SRV-PROXY01)
 # Normalement lance depuis SRV-AD01 par projet.ps1 (options 2, 4 et 5).
 MODE="${1:-config}"
 [ "$EUID" -eq 0 ] || { echo "Lancez avec sudo : sudo bash $0 $MODE"; exit 1; }
+
+# ======================================================================== SQUID : CONFIGURATION ET AUTHENTIFICATION
+# Deux modes d'authentification, choisis par /etc/squid/mode-auth :
+#   identifiants (par defaut) : au lancement du navigateur, fenetre "nom d'utilisateur et mot de passe" (compte AD)
+#   sso                       : authentification transparente Kerberos par la session Windows
+#   sudo bash projet.sh auth identifiants|sso   bascule de l'un a l'autre
+etape() { echo -e "\n\e[36m=== $* ===\e[0m"; }
+ok()    { echo -e "\e[32m[OK]\e[0m $*"; }
+alerte(){ echo -e "\e[31m[!!]\e[0m $*"; }
+mode_auth() { cat /etc/squid/mode-auth 2>/dev/null || echo identifiants; }
+
+ecrire_conf_squid() {
+if [ "$(mode_auth)" = sso ]; then
+  AUTH='# Authentification transparente (SSO) : Kerberos, par la session Windows
+auth_param negotiate program /usr/lib/squid/negotiate_kerberos_auth -k /etc/squid/HTTP.keytab -s HTTP/srv-proxy01.groupe4.internal@GROUPE4.INTERNAL
+auth_param negotiate children 10
+auth_param negotiate keep_alive on
+acl authentifie proxy_auth REQUIRED'
+else
+  AUTH='# Authentification par identifiants AD : au lancement du navigateur, nom d utilisateur et mot de passe
+auth_param basic program /usr/lib/squid/basic_ldap_auth -v 3 -R -b "dc=groupe4,dc=internal" -D svc-squid@groupe4.internal -W /etc/squid/ldap.pass -f "(&(objectClass=person)(sAMAccountName=%s))" -h srv-ad01.groupe4.internal
+auth_param basic children 10
+auth_param basic realm Groupe 4 - compte Windows, exemple j.martin
+auth_param basic credentialsttl 8 hours
+acl authentifie proxy_auth REQUIRED'
+fi
+[ -f /etc/squid/conf.d/groupe4.conf ] && cp /etc/squid/conf.d/groupe4.conf "/etc/squid/groupe4.conf.$(date +%Y%m%d-%H%M%S).bak"
+{
+cat <<'EOF'
+# Groupe 4 - proxy Squid de SRV-PROXY01
+visible_hostname srv-proxy01.groupe4.internal
+acl reseau_interne src 192.168.10.0/24
+
+# Inspection HTTPS (SSL-Bump)
+http_port 3128 ssl-bump tls-cert=/etc/squid/ssl/squid-ca.crt tls-key=/etc/squid/ssl/squid-ca.key generate-host-certificates=on dynamic_cert_mem_cache_size=16MB
+sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db -M 16MB
+sslcrtd_children 5
+acl etape1 at_step SslBump1
+acl sans_dechiffrement ssl::server_name .windowsupdate.com .update.microsoft.com
+ssl_bump peek etape1
+ssl_bump splice sans_dechiffrement
+ssl_bump bump all
+
+EOF
+printf '%s\n\n' "$AUTH"
+cat <<'EOF'
+# Appartenance au groupe GG-Internet
+external_acl_type groupe_ad ttl=300 negative_ttl=60 %LOGIN /usr/lib/squid/ext_ldap_group_acl -R -K -S -b "dc=groupe4,dc=internal" -D svc-squid@groupe4.internal -W /etc/squid/ldap.pass -f "(&(objectClass=person)(sAMAccountName=%u)(memberOf=cn=%g,ou=Utilisateurs-G4,dc=groupe4,dc=internal))" -h srv-ad01.groupe4.internal
+acl gg_internet external groupe_ad GG-Internet
+
+# Categorie reseaux sociaux (YouTube, Facebook...) bloquee pour tout le monde
+acl reseaux_sociaux dstdomain "/etc/squid/reseaux-sociaux.txt"
+
+# Pages d'erreur personnalisees (logo Guardia)
+error_directory /etc/squid/errors-groupe4
+err_page_stylesheet /etc/squid/errors-groupe4.css
+deny_info ERR_RESEAUX_SOCIAUX reseaux_sociaux
+deny_info ERR_GG_INTERNET all
+
+# Regles d'acces, dans cet ordre
+http_access deny !reseau_interne
+http_access deny !authentifie
+http_access deny reseaux_sociaux
+http_access allow gg_internet
+http_access deny all
+EOF
+} > /etc/squid/conf.d/groupe4.conf
+if squid -k parse 2>&1 | grep -E "FATAL|ERROR"; then
+  alerte "Erreur dans la configuration de Squid (voir ci-dessus)"; exit 1
+fi
+systemctl restart squid
+ok "Squid : $(systemctl is-active squid), authentification : $(mode_auth)"
+}
+
+changer_auth() {
+case "${1:-}" in
+  identifiants|sso) echo "$1" > /etc/squid/mode-auth ;;
+  *) echo "Usage : sudo bash projet.sh auth identifiants|sso (actuel : $(mode_auth))"; exit 1 ;;
+esac
+etape "Authentification du proxy : $1"
+ecrire_conf_squid
+[ "$1" = identifiants ] && echo "Au prochain lancement d'Edge, le poste demandera nom d'utilisateur (ex. j.martin) et mot de passe." || echo "Edge utilisera la session Windows, sans rien demander."
+}
 
 # ======================================================================== CONFIGURATION
 config_proxy() {
@@ -189,6 +273,20 @@ cat > "$D/ERR_RESEAUX_SOCIAUX" <<EOF
 <div id="footer">Proxy SRV-PROXY01 · Groupe 4 · Guardia Cybersecurity School</div>
 </body></html>
 EOF
+cat > "$D/ERR_CACHE_ACCESS_DENIED" <<EOF
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><title>Identification requise</title>
+<style type="text/css"><!-- %l --></style></head>
+<body id="%c"><div id="guardia">$LOGO</div>
+<div id="titles"><h1>Identification requise</h1><h2>Connectez-vous avec votre compte Windows</h2></div>
+<div id="content">
+<p>Pour accéder à <b>%U</b>, le proxy de l'entreprise doit vous identifier.</p>
+<p>Rechargez la page, puis saisissez votre nom d'utilisateur (par exemple <b>j.martin</b>) et votre mot de passe Windows dans la fenêtre qui s'ouvre.</p>
+<p class="info">Poste : %i · %T</p>
+</div>
+<div id="footer">Proxy SRV-PROXY01 · Groupe 4 · Guardia Cybersecurity School</div>
+</body></html>
+EOF
 cat > /etc/squid/errors-groupe4.css <<EOF
 html { background: #eef1f5; }
 body { font-family: "Segoe UI", Arial, sans-serif; color: #0f1b2d; max-width: 720px; margin: 40px auto; background: #ffffff;
@@ -234,54 +332,8 @@ chmod 644 /etc/squid/reseaux-sociaux.txt
 ok "Categorie reseaux sociaux : $(wc -l < /etc/squid/reseaux-sociaux.txt) domaines dans /etc/squid/reseaux-sociaux.txt"
 
 # ---------------------------------------------------------------- 8
-etape "8. Configuration finale de Squid"
-[ -f /etc/squid/conf.d/groupe4.conf ] && cp /etc/squid/conf.d/groupe4.conf "/etc/squid/groupe4.conf.$(date +%Y%m%d-%H%M%S).bak"
-cat > /etc/squid/conf.d/groupe4.conf <<'EOF'
-# Groupe 4 - proxy Squid de SRV-PROXY01
-visible_hostname srv-proxy01.groupe4.internal
-acl reseau_interne src 192.168.10.0/24
-
-# Inspection HTTPS (SSL-Bump)
-http_port 3128 ssl-bump tls-cert=/etc/squid/ssl/squid-ca.crt tls-key=/etc/squid/ssl/squid-ca.key generate-host-certificates=on dynamic_cert_mem_cache_size=16MB
-sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db -M 16MB
-sslcrtd_children 5
-acl etape1 at_step SslBump1
-acl sans_dechiffrement ssl::server_name .windowsupdate.com .update.microsoft.com
-ssl_bump peek etape1
-ssl_bump splice sans_dechiffrement
-ssl_bump bump all
-
-# Authentification Kerberos par l'AD
-auth_param negotiate program /usr/lib/squid/negotiate_kerberos_auth -k /etc/squid/HTTP.keytab -s HTTP/srv-proxy01.groupe4.internal@GROUPE4.INTERNAL
-auth_param negotiate children 10
-auth_param negotiate keep_alive on
-acl authentifie proxy_auth REQUIRED
-
-# Appartenance au groupe GG-Internet
-external_acl_type groupe_ad ttl=300 negative_ttl=60 %LOGIN /usr/lib/squid/ext_ldap_group_acl -R -K -S -b "dc=groupe4,dc=internal" -D svc-squid@groupe4.internal -W /etc/squid/ldap.pass -f "(&(objectClass=person)(sAMAccountName=%u)(memberOf=cn=%g,ou=Utilisateurs-G4,dc=groupe4,dc=internal))" -h srv-ad01.groupe4.internal
-acl gg_internet external groupe_ad GG-Internet
-
-# Categorie reseaux sociaux (YouTube, Facebook...) bloquee pour tout le monde
-acl reseaux_sociaux dstdomain "/etc/squid/reseaux-sociaux.txt"
-
-# Pages d'erreur personnalisees (logo Guardia)
-error_directory /etc/squid/errors-groupe4
-err_page_stylesheet /etc/squid/errors-groupe4.css
-deny_info ERR_RESEAUX_SOCIAUX reseaux_sociaux
-deny_info ERR_GG_INTERNET all
-
-# Regles d'acces, dans cet ordre
-http_access deny !reseau_interne
-http_access deny !authentifie
-http_access deny reseaux_sociaux
-http_access allow gg_internet
-http_access deny all
-EOF
-if squid -k parse 2>&1 | grep -E "FATAL|ERROR"; then
-  alerte "Erreur dans la configuration de Squid (voir ci-dessus)"; exit 1
-fi
-systemctl restart squid
-ok "Squid : $(systemctl is-active squid)"
+etape "8. Configuration finale de Squid (authentification : $(mode_auth))"
+ecrire_conf_squid
 
 # ---------------------------------------------------------------- Bilan
 etape "Bilan"
@@ -547,7 +599,8 @@ t "Paquet squid-openssl installe" 'dpkg -s squid-openssl'
 t "Service squid actif" 'systemctl is-active squid'
 t "Squid ecoute sur 3128" 'ss -ltn | grep -q ":3128 "'
 t "Configuration sans ERROR ni FATAL" '! squid -k parse 2>&1 | grep -Eq "FATAL|ERROR"'
-t "groupe4.conf : ssl-bump, Kerberos, groupe AD, refus final" 'grep -q ssl-bump /etc/squid/conf.d/groupe4.conf && grep -q negotiate_kerberos_auth /etc/squid/conf.d/groupe4.conf && grep -q ext_ldap_group_acl /etc/squid/conf.d/groupe4.conf && grep -q "http_access deny all" /etc/squid/conf.d/groupe4.conf'
+t "groupe4.conf : ssl-bump, authentification AD, groupe AD, refus final" 'grep -q ssl-bump /etc/squid/conf.d/groupe4.conf && grep -Eq "basic_ldap_auth|negotiate_kerberos_auth" /etc/squid/conf.d/groupe4.conf && grep -q ext_ldap_group_acl /etc/squid/conf.d/groupe4.conf && grep -q "http_access deny all" /etc/squid/conf.d/groupe4.conf'
+info "Mode d'authentification : $(cat /etc/squid/mode-auth 2>/dev/null || echo identifiants) (changer : sudo bash projet.sh auth identifiants|sso)"
 t "Categorie reseaux sociaux bloquee (YouTube, Facebook)" 'grep -q "^http_access deny reseaux_sociaux" /etc/squid/conf.d/groupe4.conf && grep -qx ".youtube.com" /etc/squid/reseaux-sociaux.txt && grep -qx ".facebook.com" /etc/squid/reseaux-sociaux.txt' "Relancer l'option 2 de projet.ps1"
 t "Pages d'erreur personnalisees avec le logo Guardia" 'grep -q "data:image/png;base64" /etc/squid/errors-groupe4/ERR_RESEAUX_SOCIAUX && grep -q "data:image/png;base64" /etc/squid/errors-groupe4/ERR_GG_INTERNET && grep -q "data:image/png;base64" /etc/squid/errors-groupe4/ERR_ACCESS_DENIED' "image.png sur le Bureau de SRV-AD01, puis option 2 de projet.ps1"
 titre "3. Inspection HTTPS"
@@ -565,8 +618,8 @@ L='/usr/lib/squid/ext_ldap_group_acl -R -K -S -b dc=groupe4,dc=internal -D svc-s
 t "Annuaire : j.martin membre de GG-Internet" 'echo "j.martin GG-Internet" | sudo -u proxy $L | grep -q ^OK'
 t "Annuaire : p.durand refuse" 'echo "p.durand GG-Internet" | sudo -u proxy $L | grep -q ^ERR'
 LOGS="/var/log/squid/access.log /var/log/squid/access.log.1"   # journal du jour et de la veille (rotation quotidienne)
-t "Journal : acces autorises de j.martin" 'grep -hqs "j.martin@GROUPE4.INTERNAL" $LOGS'
-t "Journal : refus 403 de p.durand" 'grep -hs "p.durand@GROUPE4.INTERNAL" $LOGS | grep -q "/403 "' "Naviguer en session p.durand sur PC-CLT01, puis relancer"
+t "Journal : acces autorises de j.martin" 'grep -hEqs " j\.martin(@GROUPE4\.INTERNAL)? " $LOGS'
+t "Journal : refus 403 de p.durand" 'grep -hEs " p\.durand(@GROUPE4\.INTERNAL)? " $LOGS | grep -q "/403 "' "Naviguer en session p.durand sur PC-CLT01, puis relancer"
 t "Journal : pages HTTPS completes (GET https://)" 'grep -hqs " GET https://" $LOGS'
 t "Journal : reseau social refuse (YouTube ou Facebook)" 'grep -hs "TCP_DENIED" $LOGS | grep -Eq "youtube|facebook"' "Lancer la recette de PC-CLT01 (ou ouvrir youtube.com sur PC-CLT01), puis relancer"
 titre "5. Agent Wazuh"
@@ -616,7 +669,8 @@ case "$MODE:$HOTE" in
   config:srv-proxy01) set -euo pipefail; config_proxy; config_webmin ;;
   config:srv-wazuh01) set -euo pipefail; config_wazuh ;;
   test:srv-proxy01)   set -uo pipefail; test_proxy ;;
+  auth:srv-proxy01)   set -euo pipefail; changer_auth "${2:-}" ;;
   test:srv-wazuh01)   set -uo pipefail; test_wazuh ;;
   scan:*)             set -uo pipefail; demo_scan ;;
-  *) echo "[!!] Mode '$MODE' ou machine '$HOTE' inconnu (machines : srv-proxy01, srv-wazuh01 ; modes : config, test, scan)"; exit 1 ;;
+  *) echo "[!!] Mode '$MODE' ou machine '$HOTE' inconnu (machines : srv-proxy01, srv-wazuh01 ; modes : config, test, scan, auth)"; exit 1 ;;
 esac

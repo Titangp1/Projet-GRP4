@@ -5,7 +5,7 @@ Deux scripts seulement :
 | Fichier | Où | Rôle |
 | --- | --- | --- |
 | `projet.ps1` | SRV-AD01, PC-CLT01 | Menu : configuration de l'AD, des serveurs Linux (par SSH), de FW01 (par l'API), du poste client, démonstration nmap et recette |
-| `projet.sh` | SRV-PROXY01, SRV-WAZUH01 | Configuration de la machine (Squid, HTTPS, Kerberos, Webmin / règles Wazuh), recette (`test`), scans nmap (`scan`). Lancé automatiquement par `projet.ps1` |
+| `projet.sh` | SRV-PROXY01, SRV-WAZUH01 | Configuration de la machine (Squid, HTTPS, authentification AD, Webmin / règles Wazuh), recette (`test`), scans nmap (`scan`), choix de l'authentification (`auth`). Lancé automatiquement par `projet.ps1` |
 
 Chaque partie peut être relancée sans risque : ce qui est déjà fait est sauté. Aucun mot de passe n'est écrit dans le dépôt, ils sont demandés à l'exécution. La recette ne modifie aucune configuration.
 
@@ -26,7 +26,7 @@ Menu sur SRV-AD01 :
 | Option | Effet |
 | --- | --- |
 | 1 | SRV-AD01 : heure, DNS, comptes et GG-Internet, svc-squid, OU Postes-G4, GPO du proxy et du certificat, agent Wazuh |
-| 2 | Par SSH : SRV-WAZUH01 (règles 100200, 100210, 100211) puis SRV-PROXY01 (logo envoyé depuis le Bureau, agent Wazuh, CA et SSL-Bump, Kerberos, groupe AD, pages d'erreur personnalisées, blocage des réseaux sociaux, Squid final, Webmin et Calamaris). Mots de passe : SSH puis sudo pour chaque serveur, puis Administrateur du domaine et svc-squid pour le proxy |
+| 2 | Par SSH : SRV-WAZUH01 (règles 100200, 100210, 100211) puis SRV-PROXY01 (logo envoyé depuis le Bureau, agent Wazuh, CA et SSL-Bump, authentification AD par identifiants, Kerberos, groupe AD, pages d'erreur personnalisées, blocage des réseaux sociaux, Squid final, Webmin et Calamaris). Mots de passe : SSH puis sudo pour chaque serveur, puis Administrateur du domaine et svc-squid pour le proxy |
 | 3 | FW01 par l'API : agent Wazuh, Dnsmasq arrêté, alias, règle « Web direct interdit », puis IDS Suricata |
 | 4 | Démonstration IDS : scans nmap depuis SRV-PROXY01 |
 | 5 | Recette complète : AD, FW01, proxy et Wazuh |
@@ -54,7 +54,7 @@ Menu sur PC-CLT01 (session GROUPE4\Administrateur) : 1 = configuration du poste,
 **PC-CLT01, session GROUPE4\j.martin** (PowerShell normal ; le web direct étant bloqué, le téléchargement passe par le proxy) :
 
 ```powershell
-md C:\Users\Public\g4 -Force | Out-Null; $wc = New-Object Net.WebClient; $wc.Proxy = New-Object Net.WebProxy('http://srv-proxy01.groupe4.internal:3128'); $wc.Proxy.UseDefaultCredentials = $true; $wc.DownloadFile('https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/projet.ps1', 'C:\Users\Public\g4\projet.ps1'); powershell -ExecutionPolicy Bypass -File C:\Users\Public\g4\projet.ps1
+md C:\Users\Public\g4 -Force | Out-Null; $wc = New-Object Net.WebClient; $wc.Proxy = New-Object Net.WebProxy('http://srv-proxy01.groupe4.internal:3128'); $wc.Proxy.Credentials = (Get-Credential -UserName $env:USERNAME -Message 'Mot de passe Windows').GetNetworkCredential(); $wc.DownloadFile('https://raw.githubusercontent.com/Titangp1/Projet-GRP4/main/projet.ps1', 'C:\Users\Public\g4\projet.ps1'); powershell -ExecutionPolicy Bypass -File C:\Users\Public\g4\projet.ps1
 ```
 
 **PC-CLT01, session GROUPE4\p.durand** (refusé par le proxy : il réutilise la copie de j.martin ; le test attend un refus 403) :
@@ -83,7 +83,11 @@ type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh adminproxy@192.168.10.20 "mkdir 
 
 ## À savoir
 
-- Squid exige l'authentification Kerberos : un poste réglé à la main avec l'adresse 192.168.10.20 reçoit une fenêtre d'identifiants. Les postes doivent passer par la GPO, qui utilise le nom `srv-proxy01.groupe4.internal`.
+- Squid exige une authentification, réglée par `/etc/squid/mode-auth` sur SRV-PROXY01 :
+  - `identifiants` (par défaut) : au lancement du navigateur, Edge ouvre une fenêtre « nom d'utilisateur et mot de passe » ; on saisit son compte Windows (par exemple `j.martin`, sans `GROUPE4\`). Le proxy vérifie le mot de passe dans l'AD (module basic_ldap_auth), puis ne le redemande plus tant que le navigateur reste ouvert. La recette de PC-CLT01 demande alors le mot de passe de la session.
+  - `sso` : authentification transparente Kerberos par la session Windows, sans fenêtre.
+  - Pour basculer : `sudo bash projet.sh auth sso` ou `sudo bash projet.sh auth identifiants` sur SRV-PROXY01 (relance de Squid comprise).
+- En mode `sso`, un poste réglé à la main avec l'adresse 192.168.10.20 reçoit une fenêtre d'identifiants. Les postes doivent passer par la GPO, qui utilise le nom `srv-proxy01.groupe4.internal`.
 - Si la GPO du certificat ne s'applique pas, importez `squid-ca.crt` à la main dans GPO-C-CertificatProxy (étape 10.3 du guide).
 - Le mot de passe de svc-squid est stocké sur le proxy dans `/etc/squid/ldap.pass` (lisible par root et Squid seulement). Pour le changer : supprimez ce fichier et relancez l'option 2.
 - Webmin est installé depuis le paquet officiel publié sur GitHub (le dépôt download.webmin.com est refusé depuis le réseau de l'école). Il n'est accessible que depuis SRV-AD01. Les règles du projet restent dans `/etc/squid/conf.d/groupe4.conf` : ne pas les recréer dans les écrans Access Control de Webmin.
