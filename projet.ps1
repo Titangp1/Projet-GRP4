@@ -765,16 +765,15 @@ Test-Point "Acces DIRECT au web bloque (www.debian.org:443)" { -not (Port "www.d
 Test-Point "Acces DIRECT au web bloque (neverssl.com:80)" { -not (Port "neverssl.com" 80) }
 Test-Point "Proxy joignable ($Proxy`:3128)" { Port $Proxy 3128 }
 
-Titre "4. Navigation par le proxy : HTTPS inspecte et authentification AD"
+Titre "4. Navigation par le proxy : HTTPS inspecte et authentification SSO"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-# Le proxy fonctionne en mode "identifiants" (nom d'utilisateur + mot de passe demandes) ou "sso" (Kerberos)
-$script:ProxyCred = $null
+# Authentification SSO Kerberos : la session Windows est utilisee, aucun mot de passe n'est demande
 function Via-Proxy([string]$url) {
     $r = @{ Code = 0; Corps = ""; Emetteur = "" }; $rep = $null; $rq = $null
     try {
         $rq = [Net.HttpWebRequest]::Create($url)
         $p = New-Object Net.WebProxy("http://$Proxy`:3128")
-        if ($script:ProxyCred) { $p.Credentials = $script:ProxyCred } else { $p.UseDefaultCredentials = $true }
+        $p.UseDefaultCredentials = $true
         $rq.Proxy = $p; $rq.Timeout = 20000
         $rep = $rq.GetResponse()
     } catch [Net.WebException] { $rep = $_.Exception.Response; if (-not $rep) { Info "$url : $($_.Exception.Message)" } }
@@ -787,28 +786,16 @@ function Via-Proxy([string]$url) {
     return $r
 }
 $d = Via-Proxy "https://www.debian.org/"
-$modeAuth = "sso"
-if ($d.Code -eq 407) {
-    $modeAuth = "identifiants"
-    Info "Le proxy demande un nom d'utilisateur et un mot de passe (mode identifiants)"
-    $mdp = Read-Host "Mot de passe Windows de $env:USERNAME (pour le test du proxy)" -AsSecureString
-    $script:ProxyCred = New-Object Net.NetworkCredential($env:USERNAME, $mdp)
-    $d = Via-Proxy "https://www.debian.org/"
-}
 $code = $d.Code; $emetteur = $d.Emetteur
-Info "Authentification : $modeAuth ; reponse : HTTP $code ; certificat emis par : $emetteur"
+Info "Authentification : SSO Kerberos ; reponse : HTTP $code ; certificat emis par : $emetteur"
 Test-Point "Certificat du site fabrique par le proxy (Groupe4 Proxy CA)" { $emetteur -match "Groupe4 Proxy CA" } "Inspection HTTPS inactive ou CA non approuvee"
 if ($membre) {
     Test-Point "Membre de GG-Internet : page autorisee (HTTP 200)" { $code -eq 200 }
 } else {
     Test-Point "Non membre de GG-Internet : page refusee par le proxy (HTTP 403)" { $code -eq 403 } "Un 407 signifie que l'authentification n'a pas abouti"
 }
-if ($modeAuth -eq "sso") {
-    $tickets = klist 2>&1 | Out-String
-    Test-Point "SSO : ticket Kerberos HTTP/srv-proxy01.groupe4.internal obtenu" { $tickets -match "HTTP/srv-proxy01\.groupe4\.internal" } "Verifier l'heure et le nom du proxy (pas d'adresse IP)"
-} else {
-    Test-Point "Identifiants AD acceptes par le proxy (fenetre de connexion)" { $code -ne 407 -and $code -ne 0 } "Verifier le nom d'utilisateur (ex. j.martin) et le mot de passe"
-}
+$tickets = klist 2>&1 | Out-String
+Test-Point "SSO : ticket Kerberos HTTP/srv-proxy01.groupe4.internal obtenu" { $tickets -match "HTTP/srv-proxy01\.groupe4\.internal" } "Verifier l'heure et le nom du proxy (pas d'adresse IP)"
 
 Titre "5. Reseaux sociaux bloques et pages d'erreur personnalisees"
 $yt = Via-Proxy "https://www.youtube.com/"
