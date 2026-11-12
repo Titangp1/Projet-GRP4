@@ -13,10 +13,10 @@ while golem_point_de_vie > 0:
     
     if choix == "1":
         nom_sort = "Coup d'épée"
-        degats = random.randint(10, 14)
+        degats = random.choice(range(10, 15))
     elif choix == "2":
         nom_sort = "Lancer de dague"
-        degats = random.randint(2, 22)
+        degats = random.choice(range(2, 23))
     elif choix == "3":
         nom_sort = "Boule de feu"
         degats = random.choice([0, 20])
